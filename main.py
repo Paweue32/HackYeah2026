@@ -16,9 +16,14 @@ models.Base.metadata.create_all(bind=database.engine)
 db = SessionLocal()
 
 OVERPASS_URLS = [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.private.coffee/api/interpreter"
+    "https://overpass.openstreetmap.fr/api/interpreter", 
+    "https://overpass.osm.ch/api/interpreter",         
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass-api.de/api/interpreter",         
+    "https://overpass.kumi.systems/api/interpreter",    
+    "https://overpass.private.coffee/api/interpreter",  
+    "https://overpass.nchc.org.tw/api/interpreter"
+    
 ]
 
 CACHE_FILE = pathlib.Path("krakow_roads_formatted.json")
