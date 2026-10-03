@@ -1,13 +1,16 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Float
 from .database import Base
 
 class Ways(Base):
     __tablename__ = "ways"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
-    highway_type = Column(String, unique=True, index=True)
-    surface = Column(String, unique=True, index=True)
-    maxspeed = Column(String, unique=True, index=True)
-    geometry = Column(String, unique=True, index=True)
-    tags = Column(String, unique=True, index=True)
+    way_id = Column(Integer, primary_key=True, index=True)
+    start_node_id = Column(Integer, index=True)
+    start_node_lat = Column(Integer, index=True)
+    start_node_lon = Column(Integer, index=True)
+    end_node_id = Column(Integer, index=True)
+    end_node_lat = Column(Integer, index=True)
+    end_node_lon = Column(Integer, index=True)
+    node_amount = Column(Integer, index=True)
+    distance = Column(Integer, index=True)
+    way_rating = Column(Float, index=True)
