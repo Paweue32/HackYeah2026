@@ -22,28 +22,48 @@ async def fetch_krakow_roads(client: httpx.AsyncClient, highway: str = "primary|
     
     query = f"""
     [out:json][timeout:200];
-    area["boundary"="administrative"]["name"="Kraków"]->.searchArea;
+    area["boundary"="administrative"]["name"="Kraków"]["admin_level"="7"]->.searchArea;
     way["highway"~"^({highway})$"](area.searchArea);
-    out geom;
+    (._; >;);
+    out body;
     """
 
     for url in OVERPASS_URLS:
         try:
-            print(f"⏳ Downloading data from z {url}...")
+            print(f"⏳ Downloading data from {url}...")
             response = await client.post(url, data={"data": query})
             response.raise_for_status()
+
             raw_data = response.json()
+            elements = raw_data.get("elements", [])
+
+            # Indexing all nodes (node_id -> coords)
+            nodes_coords = {}
+            for item in elements:
+                if item.get("type") == "node":
+                    nodes_coords[item["id"]] = {
+                        "lat": item["lat"],
+                        "lon": item["lon"]
+                    }
             
             roads = []
-            for item in raw_data.get("elements", []):
+            for item in elements:
                 if item.get("type") == "way":
+                    # Odtwarzamy listę geometrii na podstawie ID z pola "nodes"
+                    geometry = [
+                        nodes_coords[node_id]
+                        for node_id in item.get("nodes", [])
+                        if node_id in nodes_coords
+                    ]
+
                     roads.append({
                         "id": item["id"],
                         "name": item.get("tags", {}).get("name", "No name"),
                         "highway_type": item.get("tags", {}).get("highway"),
                         "surface": item.get("tags", {}).get("surface"),
                         "maxspeed": item.get("tags", {}).get("maxspeed"),
-                        "geometry": item.get("geometry", []),
+                        "nodes": item.get("nodes", []),
+                        "geometry": geometry,
                         "tags": item.get("tags", {})
                     })
 
