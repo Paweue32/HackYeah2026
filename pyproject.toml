@@ -6,6 +6,5 @@ dependencies = [
     "cachetools>=7.2.0",
     "fastapi[standard]>=0.142.2",
     "networkx>=3.7",
-    "osmnx>=2.1.1",
->>>>>>> e088d8b (added a script creating mocking data and osmnx)
+    "osmnx>=2.1.1"
 ]
