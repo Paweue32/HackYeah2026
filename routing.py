@@ -16,33 +16,46 @@ class RoutingEngine:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        cursor.execute("SELECT start_node, end_node, length, rating, geometry FROM edges")
+        # Zaktualizowane zapytanie - dostosowane do tabeli kolegi (tabela nazywa się "ways", a nie "edges")
+        cursor.execute("SELECT way_id, distance, way_rating, coordinates FROM ways")
         
         for row in cursor.fetchall():
-            u, v, length, rating, geometry_str = row
+            way_id, length, rating, geometry_str = row
             
-            # Changing the scale to 1-10. Inverting the rating (higher rating means lower weight).
-            # If rating = 10, (11 - 10) = 1 (super low weight, algorithm will choose it).
-            # If rating = 1, (11 - 1) = 10 (high weight edge, algorithm will avoid it).
-            # Protection against missing rating (e.g. defaulting to 5)
+            try:
+                # Parsujemy JSON z tabeli
+                coords_list = json.loads(geometry_str) if isinstance(geometry_str, str) else geometry_str
+                
+                # Konwertujemy format kolegi {"lat": Y, "lon": X} na naszą listę [lon, lat]
+                coords = [[p["lon"], p["lat"]] for p in coords_list]
+                
+            except Exception as e:
+                continue
+
+            if not coords or len(coords) < 2:
+                continue
+
+            # Ustawiamy punkty początkowe i końcowe jako unikalne ID węzłów
+            start_point = coords[0]
+            end_point = coords[-1]
+
+            u = f"{start_point[1]:.4f}_{start_point[0]:.4f}"
+            v = f"{end_point[1]:.4f}_{end_point[0]:.4f}"
+
+            if u == v:
+                continue
+
             safe_rating = rating if rating is not None else 5 
-            
-            # noise to avoid choosing the same path (better for randomization)
             noise = random.uniform(0.9, 1.1)
-            custom_weight = length * (11 - safe_rating) * noise
+            custom_weight = (length if length else 100) * (11 - safe_rating) * noise
 
             self.G.add_edge(u, v, 
                             weight=custom_weight, 
                             length=length, 
-                            geometry=geometry_str)
+                            geometry=json.dumps(coords))
             
-            try:
-                coords = json.loads(geometry_str)
-                if coords:
-                    self.nodes_coords[u] = coords[0]       # [lon, lat]
-                    self.nodes_coords[v] = coords[-1]      # [lon, lat]
-            except:
-                pass
+            self.nodes_coords[u] = coords[0]
+            self.nodes_coords[v] = coords[-1]
                 
         conn.close()
         print(f"Graph loaded! Number of nodes: {self.G.number_of_nodes()}")
@@ -102,7 +115,7 @@ class RoutingEngine:
 
         # 3. Path to the midpoint
         try:
-            path_there = nx.shortest_path(self.G, start=start_node, target=mid_node, weight='weight')
+            path_there = nx.shortest_path(self.G, source=start_node, target=mid_node, weight='weight')
         except nx.NetworkXNoPath:
             return None
 
@@ -116,7 +129,7 @@ class RoutingEngine:
 
         # 5. Path back
         try:
-            path_back = nx.shortest_path(self.G, start=mid_node, target=start_node, weight='weight')
+            path_back = nx.shortest_path(self.G, source=mid_node, target=start_node, weight='weight')
         except nx.NetworkXNoPath:
             path_back = [mid_node, start_node]
 
