@@ -404,18 +404,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-<<<<<<< HEAD
-<<<<<<< HEAD
     { name = "cachetools", specifier = ">=7.2.0" },
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.142.2" },
-=======
-=======
-    { name = "cachetools", specifier = ">=7.2.0" },
->>>>>>> 6bcc6cb (updates)
     { name = "fastapi", extras = ["standard"], specifier = ">=0.142.2" },
     { name = "networkx", specifier = ">=3.7" },
     { name = "osmnx", specifier = ">=2.1.1" },
->>>>>>> e088d8b (added a script creating mocking data and osmnx)
 ]
 
 [[package]]
