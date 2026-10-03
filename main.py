@@ -251,7 +251,7 @@ def process_route_generation(payload: RoutePayload, response: Response):
              routes = [route1, route2, route3]
 
      for route in routes:
-          active_routes[route["properties"]["UUID"]] = [1, 2, 3]
+          active_routes[route["properties"]["id"]] = [1, 2, 3]
  
      return {
           "type": "FeatureCollection",
