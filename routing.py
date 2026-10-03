@@ -159,3 +159,13 @@ class RoutingEngine:
             "type": "LineString",
             "coordinates": geojson_coordinates
         }
+
+    def update_edge_rating(self, u, v, new_rating, length):
+        """Updates the weight of a specific street in RAM after adding a new rating."""
+        if self.G.has_edge(u, v):
+            safe_rating = new_rating if new_rating is not None else 5 
+            noise = random.uniform(0.9, 1.1)
+            new_weight = (length if length else 100) * (11 - safe_rating) * noise
+            
+            # Substituting the weight in the existing graph
+            self.G[u][v]['weight'] = new_weight
