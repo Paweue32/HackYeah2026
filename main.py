@@ -1,13 +1,17 @@
 from contextlib import asynccontextmanager
 import httpx
-from fastapi import FastAPI,Depends, Request, HTTPException
+from fastapi import FastAPI, Depends, Request, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Any
+import uuid
+import time
+from cachetools import TTLCache
 
 
 app = FastAPI()
+active_routes = TTLCache(maxsize=100, ttl=30*60)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,8 +32,22 @@ class RoutePayload(BaseModel):
     point: Optional[Coordinate] = None
     distance: Optional[float] = None
 
+
+class DiscardPayload(BaseModel):
+    discarded_route_ids: list[str]
+
+class RefreshPayload(BaseModel):
+    prolonged_route_id: str
+
+class FeedbackPayload(BaseModel):
+    route_id: str
+    grade: int
+
 Coordinate.model_rebuild()
 RoutePayload.model_rebuild()
+DiscardPayload.model_rebuild()
+RefreshPayload.model_rebuild()
+FeedbackPayload.model_rebuild()
 
 @app.post("/map/")
 def process_map_route(payload: RoutePayload):
@@ -96,14 +114,50 @@ def process_map_route(payload: RoutePayload):
         "routes": routes
     }
 
-@app.post("/discard/")
-def process_suggestion_discard():
+@app.post("/discard/", status_code=200)
+def process_suggestion_discard(payload: DiscardPayload, response: Response):
+      for route_id in payload.discarded_route_ids:
+           if route_id not in active_routes:
+                response.status_code = status.HTTP_400_BAD_REQUEST
+                return {
+                     "status": "failure",
+                     "message": "At least one route ID is invalid"
+                }
+      for route_id in payload.discarded_route_ids:
+           if route_id in active_routes:
+                active_routes.pop(route_id)
+
       return {
-            "OKI": "DOKI"
+           "status": "success"
+      }
+
+@app.post("/refresh/", status_code=200)
+def process_refresh_path(payload: RefreshPayload, response: Response):
+      if payload.prolonged_route_id in active_routes:
+           active_routes[payload.prolonged_route_id] = active_routes[payload.prolonged_route_id]
+           return {
+                "status": "success"
+           }
+
+      response.status_code = status.HTTP_400_BAD_REQUEST
+      return {
+           "status": "failure",
+           "message": "The route ID is invalid. Perhaps it has timed out"
       }
 
 @app.post("/feedback/")
-def process_route_feedback():
+def process_route_feedback(payload: FeedbackPayload):
       return {
-            "O": "K"
+            "Place": "holder"
       }
+
+
+# do celow testowych
+@app.post("/seed/")
+def process_seed():
+     for i in range(10):
+          active_routes[str(uuid.uuid4())] = [3, 4, 5]
+
+@app.post("/lookup/")
+def process_lookup():
+     print(active_routes)
