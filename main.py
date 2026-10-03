@@ -3,7 +3,10 @@ import httpx
 from fastapi import FastAPI,Depends, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import Annotated
+from database import database, models
 
+# Tworzenie tabel w bazie SQLite przy uruchomieniu aplikacji
+models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI()
 
