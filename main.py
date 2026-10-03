@@ -114,16 +114,6 @@ def process_map_route(payload: RoutePayload, response: Response):
         "routes": routes
     }
 
-def format_feature(lat: float, lng: float) -> dict:
-     new_point = {
-          "type": "Feature",
-          "geometry": {
-               "coordinates": [lng, lat],
-               "type": "Point"
-          }
-     }
-
-     return new_point
 
 @app.post("/generate/", status_code=200)
 def process_route_generation(payload: RoutePayload, response: Response):
@@ -139,9 +129,14 @@ def process_route_generation(payload: RoutePayload, response: Response):
              ]
 
              route1 = {
-                  "type": "FeatureCollection",
-                  "UUID": str(uuid.uuid4()),
-                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+                  "type": "Feature",
+                  "properties": {
+                       "UUID": str(uuid.uuid4())
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
              }
 
              coordinates = [
@@ -152,9 +147,14 @@ def process_route_generation(payload: RoutePayload, response: Response):
              ]
  
              route2 = {
-                  "type": "FeatureCollection",
-                  "UUID": str(uuid.uuid4()),
-                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+                  "type": "Feature",
+                  "properties": {
+                       "UUID": str(uuid.uuid4())
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
              }
 
              coordinates = [
@@ -164,9 +164,14 @@ def process_route_generation(payload: RoutePayload, response: Response):
              ]
  
              route3 = {
-                  "type": "FeatureCollection",
-                  "UUID": str(uuid.uuid4()),
-                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+                  "type": "Feature",
+                  "properties": {
+                       "UUID": str(uuid.uuid4())
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
              }
  
              routes = [route1, route2, route3]
@@ -185,9 +190,14 @@ def process_route_generation(payload: RoutePayload, response: Response):
              ]
 
              route1 = {
-                  "type": "FeatureCollection",
-                  "UUID": str(uuid.uuid4()),
-                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+                  "type": "Feature",
+                  "properties": {
+                       "UUID": str(uuid.uuid4())
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
              }
  
              # Route 2: Heading South-East
@@ -199,9 +209,14 @@ def process_route_generation(payload: RoutePayload, response: Response):
              ]
 
              route2 = {
-                  "type": "FeatureCollection",
-                  "UUID": str(uuid.uuid4()),
-                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+                  "type": "Feature",
+                  "properties": {
+                       "UUID": str(uuid.uuid4())
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
              }
  
              # Route 3: Heading West
@@ -213,20 +228,24 @@ def process_route_generation(payload: RoutePayload, response: Response):
              ]
 
              route3 = {
-                  "type": "FeatureCollection",
-                  "UUID": str(uuid.uuid4()),
-                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+                  "type": "Feature",
+                  "properties": {
+                       "UUID": str(uuid.uuid4())
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
              }
  
              routes = [route1, route2, route3]
 
      for route in routes:
-          active_routes[route["UUID"]] = [1, 2, 3]
+          active_routes[route["properties"]["UUID"]] = [1, 2, 3]
  
      return {
-         "status": "success",
-         "message": "3 test routes calculated",
-         "routes": routes
+          "type": "FeatureCollection",
+          "features": routes
      }
 
 @app.post("/discard/", status_code=200)
