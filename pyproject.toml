@@ -4,5 +4,6 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi[standard]>=0.142.2",
+    "geopy>=2.5.0",
     "sqlalchemy>=2.1.3",
 ]

@@ -1,13 +1,17 @@
 from contextlib import asynccontextmanager
 import httpx
-import json
 import pathlib
 from fastapi import FastAPI
-from database import database, models
+from sqlalchemy import insert
+from database import database, models, SessionLocal
 from typing import Dict, Any, List
+from geopy.distance import geodesic
+from .database.models import Ways
 
 # Table creation in SQLite upon app startup
 models.Base.metadata.create_all(bind=database.engine)
+
+db = SessionLocal()
 
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
@@ -46,7 +50,7 @@ async def fetch_krakow_roads(client: httpx.AsyncClient, highway: str = "primary|
                         "lon": item["lon"]
                     }
             
-            roads = []
+            ways = []
             for item in elements:
                 if item.get("type") == "way":
                     # Odtwarzamy listę geometrii na podstawie ID z pola "nodes"
@@ -56,23 +60,26 @@ async def fetch_krakow_roads(client: httpx.AsyncClient, highway: str = "primary|
                         if node_id in nodes_coords
                     ]
 
-                    roads.append({
-                        "id": item["id"],
-                        "name": item.get("tags", {}).get("name", "No name"),
-                        "highway_type": item.get("tags", {}).get("highway"),
-                        "surface": item.get("tags", {}).get("surface"),
-                        "maxspeed": item.get("tags", {}).get("maxspeed"),
+                    # count way distance based on geometry
+                    points = [(p["lat"], p["lon"]) for p in geometry]
+
+                    distance = sum(geodesic(a, b).meters for a, b in zip(points, points[1:]))
+
+                    ways.append({
+                        "way_id": item["id"],
                         "nodes": item.get("nodes", []),
-                        "geometry": geometry,
-                        "tags": item.get("tags", {})
+                        "coordinates": geometry,
+                        "distance": distance,
+                        "way_rating": 5,
                     })
 
-            # Zapisz pobrane dane do pliku JSON
-            with open(CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(roads, f, ensure_ascii=False, indent=2)
-            print("✅ Loaded data to krakow_roads.json")
-
-            return roads
+            # Save downloaded and parsed data to database
+            try:
+                db.execute(insert(Ways), ways)
+                db.commit()
+            finally:
+                db.close()
+            return ways
 
         except Exception as e:
             print(f"⚠️ Data download Error from url: {url} , Error: {e}")
