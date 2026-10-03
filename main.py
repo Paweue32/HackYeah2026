@@ -134,7 +134,7 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route1 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4()),
+                       "id": str(uuid.uuid4()),
                        "color": random.choice(color_list)
                   },
                   "geometry": {
@@ -153,7 +153,7 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route2 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4()),
+                       "id": str(uuid.uuid4()),
                        "color": random.choice(color_list)
                   },
                   "geometry": {
@@ -172,7 +172,7 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route3 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4()),
+                       "id": str(uuid.uuid4()),
                        "color": random.choice(color_list)
                   },
                   "geometry": {
@@ -199,7 +199,7 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route1 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4()),
+                       "id": str(uuid.uuid4()),
                        "color": random.choice(color_list)
                   },
                   "geometry": {
@@ -219,7 +219,7 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route2 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4()),
+                       "id": str(uuid.uuid4()),
                        "color": random.choice(color_list)
                   },
                   "geometry": {
@@ -239,7 +239,7 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route3 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4()),
+                       "id": str(uuid.uuid4()),
                        "color": random.choice(color_list)
                   },
                   "geometry": {
