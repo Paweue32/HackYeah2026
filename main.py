@@ -8,6 +8,7 @@ from typing import Optional, Any
 import uuid
 import time
 from cachetools import TTLCache
+import random
 
 
 app = FastAPI()
@@ -49,70 +50,148 @@ DiscardPayload.model_rebuild()
 RefreshPayload.model_rebuild()
 FeedbackPayload.model_rebuild()
 
-@app.post("/map/")
-def process_map_route(payload: RoutePayload):
-    print("Received payload:", payload)
-    
-    routes = []
-    if payload.mode == "two_points" and payload.start and payload.destination:
-            s_lat, s_lng = payload.start.lat, payload.start.lng
-            d_lat, d_lng = payload.destination.lat, payload.destination.lng
 
-            route1 = [
-                {"lat": s_lat, "lng": s_lng},
-                {"lat": (s_lat + d_lat) / 2, "lng": (s_lng + d_lng) / 2},
-                {"lat": d_lat, "lng": d_lng}
-            ]
+color_list = ["#FF0000", "#00FF00", "#0000FF"]
 
-            route2 = [
-                {"lat": s_lat, "lng": s_lng},
-                {"lat": s_lat + (d_lat - s_lat) * 0.3 + 0.006, "lng": s_lng + (d_lng - s_lng) * 0.3 - 0.006},
-                {"lat": s_lat + (d_lat - s_lat) * 0.7 + 0.006, "lng": s_lng + (d_lng - s_lng) * 0.7 - 0.006},
-                {"lat": d_lat, "lng": d_lng}
-            ]
+@app.post("/generate/", status_code=200)
+def process_route_generation(payload: RoutePayload, response: Response):
+     routes = []
+     if payload.mode == "two_points" and payload.start and payload.destination:
+             s_lat, s_lng = payload.start.lat, payload.start.lng
+             d_lat, d_lng = payload.destination.lat, payload.destination.lng
 
-            route3 = [
-                {"lat": s_lat, "lng": s_lng},
-                {"lat": s_lat + (d_lat - s_lat) * 0.3 - 0.006, "lng": s_lng + (d_lng - s_lng) * 0.3 + 0.006},
-                {"lat": s_lat + (d_lat - s_lat) * 0.7 - 0.006, "lng": s_lng + (d_lng - s_lng) * 0.7 + 0.006},
-                {"lat": d_lat, "lng": d_lng}
-            ]
+             coordinates = [
+                  [s_lat, s_lng],
+                  [(s_lat + d_lat)/2, (s_lng + d_lng)/2],
+                  [d_lat, d_lng]
+             ]
 
-            routes = [route1, route2, route3]
+             route1 = {
+                  "type": "Feature",
+                  "properties": {
+                       "id": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
+             }
 
-    elif payload.mode == "point_distance" and payload.point:
-            p_lat, p_lng = payload.point.lat, payload.point.lng
-            distance_km = (payload.distance or 3000) / 1000.0
-            offset = distance_km * 0.008
+             coordinates = [
+                  [s_lat, s_lng],
+                  [s_lat + (d_lat - s_lat) * 0.3 + 0.006, s_lng + (d_lng - s_lng) * 0.3 - 0.006],
+                  [s_lat + (d_lat - s_lat) * 0.7 + 0.006, s_lng + (d_lng - s_lng) * 0.7 - 0.006],
+                  [d_lat, d_lng]
+             ]
+ 
+             route2 = {
+                  "type": "Feature",
+                  "properties": {
+                       "id": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
+             }
 
-            # Route 1: Heading North-East
-            route1 = [
-                {"lat": p_lat, "lng": p_lng},
-                {"lat": p_lat + offset * 0.5, "lng": p_lng + offset * 0.3},
-                {"lat": p_lat + offset, "lng": p_lng + offset * 0.6}
-            ]
+             coordinates = [
+                  [s_lat, s_lng],
+                  [s_lat + (d_lat - s_lat) * 0.3 - 0.006, s_lng + (d_lng - s_lng) * 0.3 + 0.006],
+                  [s_lat + (d_lat - s_lat) * 0.7 - 0.006, s_lng + (d_lng - s_lng) * 0.7 + 0.006],
+                  [d_lat, d_lng]
+             ]
+ 
+             route3 = {
+                  "type": "Feature",
+                  "properties": {
+                       "id": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
+             }
+ 
+             routes = [route1, route2, route3]
+ 
+     elif payload.mode == "point_distance" and payload.point:
+             p_lat, p_lng = payload.point.lat, payload.point.lng
+             distance_km = (payload.distance or 3000) / 1000.0
+             offset = distance_km * 0.008
+ 
+             # Route 1: Heading North-East
 
-            # Route 2: Heading South-East
-            route2 = [
-                {"lat": p_lat, "lng": p_lng},
-                {"lat": p_lat - offset * 0.4, "lng": p_lng + offset * 0.5},
-                {"lat": p_lat - offset * 0.8, "lng": p_lng + offset * 0.8}
-            ]
+             coordinates = [
+                  [p_lat, p_lng],
+                  [p_lat + offset * 0.5, p_lng + offset * 0.3],
+                  [p_lat + offset, p_lng + offset * 0.6]
+             ]
 
-            # Route 3: Heading West
-            route3 = [
-                {"lat": p_lat, "lng": p_lng},
-                {"lat": p_lat + offset * 0.2, "lng": p_lng - offset * 0.5},
-                {"lat": p_lat - offset * 0.3, "lng": p_lng - offset * 0.9}
-            ]
+             route1 = {
+                  "type": "Feature",
+                  "properties": {
+                       "id": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
+             }
+ 
+             # Route 2: Heading South-East
 
-            routes = [route1, route2, route3]
+             coordinates = [
+                  [p_lat, p_lng],
+                  [p_lat - offset * 0.4, p_lng + offset * 0.5],
+                  [p_lat - offset * 0.8, p_lng + offset * 0.8]
+             ]
 
-    return {
-        "status": "success",
-        "message": "3 test routes calculated",
-        "routes": routes
-    }
+             route2 = {
+                  "type": "Feature",
+                  "properties": {
+                       "id": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
+             }
+ 
+             # Route 3: Heading West
+
+             coordinates = [
+                  [p_lat, p_lng],
+                  [p_lat + offset * 0.2, p_lng - offset * 0.5],
+                  [p_lat - offset * 0.3, p_lng - offset * 0.9]
+             ]
+
+             route3 = {
+                  "type": "Feature",
+                  "properties": {
+                       "id": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
+                  },
+                  "geometry": {
+                       "type": "LineString",
+                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+                  }
+             }
+ 
+             routes = [route1, route2, route3]
+
+     for route in routes:
+          active_routes[route["properties"]["id"]] = [1, 2, 3]
+ 
+     return {
+          "type": "FeatureCollection",
+          "features": routes
+     }
 
 @app.post("/discard/", status_code=200)
 def process_suggestion_discard(payload: DiscardPayload, response: Response):
