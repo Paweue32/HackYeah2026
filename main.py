@@ -49,8 +49,8 @@ DiscardPayload.model_rebuild()
 RefreshPayload.model_rebuild()
 FeedbackPayload.model_rebuild()
 
-@app.post("/map/")
-def process_map_route(payload: RoutePayload):
+@app.post("/map/", status_code=200)
+def process_map_route(payload: RoutePayload, response: Response):
     print("Received payload:", payload)
     
     routes = []
@@ -113,6 +113,121 @@ def process_map_route(payload: RoutePayload):
         "message": "3 test routes calculated",
         "routes": routes
     }
+
+def format_feature(lat: float, lng: float) -> dict:
+     new_point = {
+          "type": "Feature",
+          "geometry": {
+               "coordinates": [lng, lat],
+               "type": "Point"
+          }
+     }
+
+     return new_point
+
+@app.post("/generate/", status_code=200)
+def process_route_generation(payload: RoutePayload, response: Response):
+     routes = []
+     if payload.mode == "two_points" and payload.start and payload.destination:
+             s_lat, s_lng = payload.start.lat, payload.start.lng
+             d_lat, d_lng = payload.destination.lat, payload.destination.lng
+
+             coordinates = [
+                  [s_lat, s_lng],
+                  [(s_lat + d_lat)/2, (s_lng + d_lng)/2],
+                  [d_lat, d_lng]
+             ]
+
+             route1 = {
+                  "type": "FeatureCollection",
+                  "UUID": str(uuid.uuid4()),
+                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+             }
+
+             coordinates = [
+                  [s_lat, s_lng],
+                  [s_lat + (d_lat - s_lat) * 0.3 + 0.006, s_lng + (d_lng - s_lng) * 0.3 - 0.006],
+                  [s_lat + (d_lat - s_lat) * 0.7 + 0.006, s_lng + (d_lng - s_lng) * 0.7 - 0.006],
+                  [d_lat, d_lng]
+             ]
+ 
+             route2 = {
+                  "type": "FeatureCollection",
+                  "UUID": str(uuid.uuid4()),
+                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+             }
+
+             coordinates = [
+                  [s_lat, s_lng],
+                  [s_lat + (d_lat - s_lat) * 0.3 - 0.006, s_lng + (d_lng - s_lng) * 0.3 + 0.006],
+                  [s_lat + (d_lat - s_lat) * 0.7 - 0.006, s_lng + (d_lng - s_lng) * 0.7 + 0.006]
+             ]
+ 
+             route3 = {
+                  "type": "FeatureCollection",
+                  "UUID": str(uuid.uuid4()),
+                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+             }
+ 
+             routes = [route1, route2, route3]
+ 
+     elif payload.mode == "point_distance" and payload.point:
+             p_lat, p_lng = payload.point.lat, payload.point.lng
+             distance_km = (payload.distance or 3000) / 1000.0
+             offset = distance_km * 0.008
+ 
+             # Route 1: Heading North-East
+
+             coordinates = [
+                  [p_lat, p_lng],
+                  [p_lat + offset * 0.5, p_lng + offset * 0.3],
+                  [p_lat + offset, p_lng + offset * 0.6]
+             ]
+
+             route1 = {
+                  "type": "FeatureCollection",
+                  "UUID": str(uuid.uuid4()),
+                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+             }
+ 
+             # Route 2: Heading South-East
+
+             coordinates = [
+                  [p_lat, p_lng],
+                  [p_lat - offset * 0.4, p_lng + offset * 0.5],
+                  [p_lat - offset * 0.8, p_lng + offset * 0.8]
+             ]
+
+             route2 = {
+                  "type": "FeatureCollection",
+                  "UUID": str(uuid.uuid4()),
+                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+             }
+ 
+             # Route 3: Heading West
+
+             coordinates = [
+                  [p_lat, p_lng],
+                  [p_lat + offset * 0.2, p_lng - offset * 0.5],
+                  [p_lat - offset * 0.3, p_lng - offset * 0.9]
+             ]
+
+             route3 = {
+                  "type": "FeatureCollection",
+                  "UUID": str(uuid.uuid4()),
+                  "features": [format_feature(lat=curr_lat, lng=curr_lng) for [curr_lat, curr_lng] in coordinates]
+             }
+ 
+             routes = [route1, route2, route3]
+
+     for route in routes:
+          active_routes[route["UUID"]] = [1, 2, 3]
+ 
+     return {
+         "status": "success",
+         "message": "3 test routes calculated",
+         "routes": routes
+     }
 
 @app.post("/discard/", status_code=200)
 def process_suggestion_discard(payload: DiscardPayload, response: Response):
