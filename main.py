@@ -3,10 +3,11 @@ import httpx
 import pathlib
 from fastapi import FastAPI
 from sqlalchemy import insert
-from database import database, models, SessionLocal
+from database import database, models
 from typing import Dict, Any, List
 from geopy.distance import geodesic
-from .database.models import Ways
+from database.models import Ways
+from database.database import SessionLocal
 
 # Table creation in SQLite upon app startup
 models.Base.metadata.create_all(bind=database.engine)
