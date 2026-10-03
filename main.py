@@ -165,7 +165,8 @@ def process_route_generation(payload: RoutePayload, response: Response):
              coordinates = [
                   [s_lat, s_lng],
                   [s_lat + (d_lat - s_lat) * 0.3 - 0.006, s_lng + (d_lng - s_lng) * 0.3 + 0.006],
-                  [s_lat + (d_lat - s_lat) * 0.7 - 0.006, s_lng + (d_lng - s_lng) * 0.7 + 0.006]
+                  [s_lat + (d_lat - s_lat) * 0.7 - 0.006, s_lng + (d_lng - s_lng) * 0.7 + 0.006],
+                  [d_lat, d_lng]
              ]
  
              route3 = {
