@@ -33,7 +33,7 @@ async def fetch_krakow_roads(client: httpx.AsyncClient, highway: str = "primary|
     
     query = f"""
     [out:json][timeout:200];
-    area["boundary"="administrative"]["name"="Kraków"]["admin_level"="7"]->.searchArea;
+    area["boundary"="administrative"]["name"="Kraków"]["admin_level"="6"]->.searchArea;
     way["highway"~"^({highway})$"](area.searchArea);
     (._; >;);
     out body;
@@ -85,14 +85,12 @@ async def fetch_krakow_roads(client: httpx.AsyncClient, highway: str = "primary|
                 json.dump(ways, f, ensure_ascii=False, indent=2)
             print("✅ Loaded data to krakow_roads.json")
 
-            return ways
-
             # Save downloaded and parsed data to database
             try:
                 db.execute(insert(Ways), ways)
                 db.commit()
             finally:
-                db.close()
+                pass
             return ways
 
         except Exception as e:
