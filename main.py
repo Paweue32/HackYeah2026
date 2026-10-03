@@ -119,71 +119,19 @@ def process_route_generation(payload: RoutePayload, response: Response):
              routes = [route1, route2, route3]
  
      elif payload.mode == "point_distance" and payload.point:
-             p_lat, p_lng = payload.point.lat, payload.point.lng
-             distance_km = (payload.distance or 3000) / 1000.0
-             offset = distance_km * 0.008
- 
-             # Route 1: Heading North-East
+          p_lat, p_lng = payload.point.lat, payload.point.lng
 
-             coordinates = [
-                  [p_lat, p_lng],
-                  [p_lat + offset * 0.5, p_lng + offset * 0.3],
-                  [p_lat + offset, p_lng + offset * 0.6]
-             ]
-
-             route1 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
-                  }
-             }
- 
-             # Route 2: Heading South-East
-
-             coordinates = [
-                  [p_lat, p_lng],
-                  [p_lat - offset * 0.4, p_lng + offset * 0.5],
-                  [p_lat - offset * 0.8, p_lng + offset * 0.8]
-             ]
-
-             route2 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
-                  }
-             }
- 
-             # Route 3: Heading West
-
-             coordinates = [
-                  [p_lat, p_lng],
-                  [p_lat + offset * 0.2, p_lng - offset * 0.5],
-                  [p_lat - offset * 0.3, p_lng - offset * 0.9]
-             ]
-
-             route3 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
-                  }
-             }
- 
-             routes = [route1, route2, route3]
+          routes = [
+               {
+                    "type": "Feature",
+                    "properties": {
+                         "id": str(uuid.uuid4()),
+                         "color": random.choice(color_list)
+                    },
+                    "geometry": engine.generate_loop(p_lng, p_lat, total_distance_m=payload.distance)
+               }
+               for _ in range(0, 3)
+          ]
 
      for route in routes:
           active_routes[route["properties"]["id"]] = [1, 2, 3]
