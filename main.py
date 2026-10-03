@@ -11,6 +11,7 @@ from routing import RoutingEngine
 # Thanks to this, generating a route for a user will take a fraction of a second!
 print("⏳ Running the engine and loading the graph...")
 routing_engine = RoutingEngine(db_path='hackathon_map.db')
+routing_engine.load_graph_from_db()
 
 app = FastAPI()
 
