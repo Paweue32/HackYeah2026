@@ -9,7 +9,8 @@ import uuid
 import time
 from cachetools import TTLCache
 import random
-
+from routing import RoutingEngine
+import json
 
 app = FastAPI()
 active_routes = TTLCache(maxsize=100, ttl=30*60)
@@ -52,6 +53,8 @@ FeedbackPayload.model_rebuild()
 
 
 color_list = ["#FF0000", "#00FF00", "#0000FF"]
+engine = RoutingEngine()
+engine.load_graph_from_db()
 
 @app.post("/generate/", status_code=200)
 def process_route_generation(payload: RoutePayload, response: Response):
