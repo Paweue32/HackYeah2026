@@ -31,3 +31,11 @@ async def generate_map_route(start_lon: float, start_lat: float, distance_m: int
         "route": route
     }
 
+#if we want to download more districts (and the topology will change), we can use this endpoint
+@app.post("/admin/reload-graph/")
+async def reload_graph_endpoint():
+    """Forces reloading the database of roads into RAM."""
+    routing_engine.G.clear() # Clears the old graph in RAM
+    routing_engine.nodes_coords.clear()
+    routing_engine.load_graph_from_db() # Loads the new one from the database
+    return {"status": "success", "message": "Graph updated!"}
