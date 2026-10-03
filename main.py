@@ -8,6 +8,7 @@ from typing import Optional, Any
 import uuid
 import time
 from cachetools import TTLCache
+import random
 
 
 app = FastAPI()
@@ -115,6 +116,8 @@ def process_map_route(payload: RoutePayload, response: Response):
     }
 
 
+color_list = ["#FF0000", "#00FF00", "#0000FF"]
+
 @app.post("/generate/", status_code=200)
 def process_route_generation(payload: RoutePayload, response: Response):
      routes = []
@@ -131,7 +134,8 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route1 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4())
+                       "UUID": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
                   },
                   "geometry": {
                        "type": "LineString",
@@ -149,7 +153,8 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route2 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4())
+                       "UUID": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
                   },
                   "geometry": {
                        "type": "LineString",
@@ -166,7 +171,8 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route3 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4())
+                       "UUID": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
                   },
                   "geometry": {
                        "type": "LineString",
@@ -192,7 +198,8 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route1 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4())
+                       "UUID": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
                   },
                   "geometry": {
                        "type": "LineString",
@@ -211,7 +218,8 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route2 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4())
+                       "UUID": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
                   },
                   "geometry": {
                        "type": "LineString",
@@ -230,7 +238,8 @@ def process_route_generation(payload: RoutePayload, response: Response):
              route3 = {
                   "type": "Feature",
                   "properties": {
-                       "UUID": str(uuid.uuid4())
+                       "UUID": str(uuid.uuid4()),
+                       "color": random.choice(color_list)
                   },
                   "geometry": {
                        "type": "LineString",
