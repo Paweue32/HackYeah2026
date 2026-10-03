@@ -8,6 +8,7 @@ from typing import Dict, Any, List
 from geopy.distance import geodesic
 from database.models import Ways
 from database.database import SessionLocal
+import json
 
 # Table creation in SQLite upon app startup
 models.Base.metadata.create_all(bind=database.engine)
@@ -20,7 +21,7 @@ OVERPASS_URLS = [
     "https://overpass.private.coffee/api/interpreter"
 ]
 
-CACHE_FILE = pathlib.Path("krakow_roads.json")
+CACHE_FILE = pathlib.Path("krakow_roads_formatted.json")
 
 async def fetch_krakow_roads(client: httpx.AsyncClient, highway: str = "primary|secondary|tertiary|footway|pedestrian") -> List[Dict[str, Any]]:
     """Helper function - downloads data from Overpass API."""
@@ -74,6 +75,13 @@ async def fetch_krakow_roads(client: httpx.AsyncClient, highway: str = "primary|
                         "way_rating": 5,
                     })
 
+            # TMP save data to json
+            with open(CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(ways, f, ensure_ascii=False, indent=2)
+            print("✅ Loaded data to krakow_roads.json")
+
+            return ways
+
             # Save downloaded and parsed data to database
             try:
                 db.execute(insert(Ways), ways)
@@ -99,10 +107,10 @@ async def lifespan(app: FastAPI):
     
     async with httpx.AsyncClient(headers=headers, timeout=200.0) as client:
         
-        # Downloaded data to krakow_roads.json
+        # pass the data to the db
         await fetch_krakow_roads(client)
 
-        # pass the data to the db
+        
     
     yield  # Here the app starts and accepts requests
 
