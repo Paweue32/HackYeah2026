@@ -26,7 +26,7 @@ class RoutePayload(BaseModel):
     start: Optional[Coordinate] = None
     destination: Optional[Coordinate] = None
     point: Optional[Coordinate] = None
-    distanceKm: Optional[float] = None
+    distance: Optional[float] = None
 
 Coordinate.model_rebuild()
 RoutePayload.model_rebuild()
@@ -64,8 +64,8 @@ def process_map_route(payload: RoutePayload):
 
     elif payload.mode == "point_distance" and payload.point:
             p_lat, p_lng = payload.point.lat, payload.point.lng
-            # Approx conversion: 1 km ~ 0.009 degrees latitude
-            offset = (payload.distanceKm or 3) * 0.008
+            distance_km = (payload.distance or 3000) / 1000.0
+            offset = distance_km * 0.008
 
             # Route 1: Heading North-East
             route1 = [
