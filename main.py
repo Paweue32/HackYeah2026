@@ -95,3 +95,15 @@ def process_map_route(payload: RoutePayload):
         "message": "3 test routes calculated",
         "routes": routes
     }
+
+@app.post("/discard/")
+def process_suggestion_discard():
+      return {
+            "OKI": "DOKI"
+      }
+
+@app.post("/feedback/")
+def process_route_feedback():
+      return {
+            "O": "K"
+      }
