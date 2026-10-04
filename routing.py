@@ -208,13 +208,15 @@ class RoutingEngine:
         except nx.NetworkXNoPath:
             return None
 
+        way_ids = self.path_way_ids(path)
         return {
             "type": "Feature",
             "properties": {
                 "length_m": round(self.path_length(path), 1),
                 "cost": round(self.path_cost(path), 1),
                 "shortest_length_m": round(self.path_length(shortest), 1),
-                "way_ids": self.path_way_ids(path),
+                "way_ids": way_ids,
+                "names": self.route_names(way_ids),
             },
             "geometry": {
                 "type": "LineString",
