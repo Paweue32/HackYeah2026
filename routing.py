@@ -407,8 +407,10 @@ class RoutingEngine:
         reachable = nx.node_connected_component(circle, start_node)
 
         min_dist = radius_m * (1 - CIRCLE_EDGE_BAND)
-        edge = np.array([i for i in inside if dist[i] >= min_dist and self._node_ids[i] in reachable],
-                        dtype=int)
+        edge = np.array([i for i in inside if dist[i] >= min_dist 
+                 and self._node_ids[i] in reachable 
+                 and self.G.degree(self._node_ids[i]) >= 2],
+                dtype=int)
         if edge.size == 0:
             return []
 
@@ -437,7 +439,7 @@ class RoutingEngine:
                     turns.append(node)
             if not turns:
                 continue
-            path = self.loop_through([start_node, *turns, start_node], circle)
+            path = self.loop_through([start_node, *turns, start_node])
             if path is not None:
                 loops.append(self.loop_feature(path, turns, (lon, lat), radius_m))
         return loops
