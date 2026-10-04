@@ -10,8 +10,18 @@ import time
 from cachetools import TTLCache
 import random
 
+from routing import RoutingEngine
 
-app = FastAPI()
+
+engine = RoutingEngine()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+     # Graph is loaded once into RAM; every request is then only in-memory computation
+     engine.load_graph_from_db()
+     yield
+
+app = FastAPI(lifespan=lifespan)
 active_routes = TTLCache(maxsize=100, ttl=30*60)
 
 app.add_middleware(
@@ -57,66 +67,18 @@ color_list = ["#FF0000", "#00FF00", "#0000FF"]
 def process_route_generation(payload: RoutePayload, response: Response):
      routes = []
      if payload.mode == "two_points" and payload.start and payload.destination:
-             s_lat, s_lng = payload.start.lat, payload.start.lng
-             d_lat, d_lng = payload.destination.lat, payload.destination.lng
-
-             coordinates = [
-                  [s_lat, s_lng],
-                  [(s_lat + d_lat)/2, (s_lng + d_lng)/2],
-                  [d_lat, d_lng]
-             ]
-
-             route1 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+             route = engine.find_route(payload.start.lng, payload.start.lat,
+                                       payload.destination.lng, payload.destination.lat)
+             if route is None:
+                  response.status_code = status.HTTP_400_BAD_REQUEST
+                  return {
+                       "status": "failure",
+                       "message": "No route between these points"
                   }
-             }
 
-             coordinates = [
-                  [s_lat, s_lng],
-                  [s_lat + (d_lat - s_lat) * 0.3 + 0.006, s_lng + (d_lng - s_lng) * 0.3 - 0.006],
-                  [s_lat + (d_lat - s_lat) * 0.7 + 0.006, s_lng + (d_lng - s_lng) * 0.7 - 0.006],
-                  [d_lat, d_lng]
-             ]
- 
-             route2 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
-                  }
-             }
-
-             coordinates = [
-                  [s_lat, s_lng],
-                  [s_lat + (d_lat - s_lat) * 0.3 - 0.006, s_lng + (d_lng - s_lng) * 0.3 + 0.006],
-                  [s_lat + (d_lat - s_lat) * 0.7 - 0.006, s_lng + (d_lng - s_lng) * 0.7 + 0.006],
-                  [d_lat, d_lng]
-             ]
- 
-             route3 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
-                  }
-             }
- 
-             routes = [route1, route2, route3]
+             route["properties"]["id"] = str(uuid.uuid4())
+             route["properties"]["color"] = random.choice(color_list)
+             routes = [route]
  
      elif payload.mode == "point_distance" and payload.point:
              p_lat, p_lng = payload.point.lat, payload.point.lng
@@ -186,7 +148,7 @@ def process_route_generation(payload: RoutePayload, response: Response):
              routes = [route1, route2, route3]
 
      for route in routes:
-          active_routes[route["properties"]["id"]] = [1, 2, 3]
+          active_routes[route["properties"]["id"]] = route["properties"].get("way_ids", [1, 2, 3])
  
      return {
           "type": "FeatureCollection",
