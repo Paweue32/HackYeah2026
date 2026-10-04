@@ -236,6 +236,33 @@ class RoutingEngine:
                                            math.cos(distance_m/R) - math.sin(lat_rad) * math.sin(new_lat_rad))
         return math.degrees(new_lon_rad), math.degrees(new_lat_rad)
 
+    def find_routes_on_circle(self, lon, lat, radius_m, count=3):
+        """Lowest-cost walks from a point to `count` destinations on a circle of radius_m around it.
+
+        Destinations are spread evenly around the circle from a random starting bearing, so every
+        request suggests different directions. A destination with no route, or one that snaps to
+        the same node as an earlier one, is skipped and the bearings in between are tried instead.
+        """
+        step = 360.0 / count
+        first = random.uniform(0, 360)
+        bearings = [first + i * step for i in range(count)]
+        bearings += [b + step / 2 for b in bearings]  # fallbacks, halfway between
+
+        routes, ends = [], set()
+        for bearing in bearings:
+            if len(routes) == count:
+                break
+            dest_lon, dest_lat = self.calculate_midpoint(lon, lat, radius_m, bearing % 360)
+            route = self.find_route(lon, lat, dest_lon, dest_lat)
+            if route is None:
+                continue
+            end = tuple(route["geometry"]["coordinates"][-1])
+            if end in ends:
+                continue
+            ends.add(end)
+            routes.append(route)
+        return routes
+
     def generate_loop(self, start_lon, start_lat, total_distance_m=3000):
         """Main algorithm for generating a loop."""
         if self.G.number_of_nodes() == 0:
