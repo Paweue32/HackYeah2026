@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
      yield
 
 app = FastAPI(lifespan=lifespan)
-active_routes = TTLCache(maxsize=100, ttl=30*60)
+active_routes = TTLCache(maxsize=10000, ttl=30*60)
 
 app.add_middleware(
     CORSMiddleware,
@@ -150,6 +150,8 @@ def process_route_names(route_id: str, response: Response):
 
 @app.post("/feedback/")
 def process_route_feedback(payload: FeedbackPayload):
+      if payload.route_id in active_routes:
+           active_routes.pop(payload.route_id)
       return {
             "Place": "holder"
       }
