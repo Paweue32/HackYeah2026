@@ -193,6 +193,20 @@ class RoutingEngine:
         """[lon, lat] list for a node path (every node is a vertex, so no extra geometry needed)."""
         return [self.nodes_coords[n] for n in path]
 
+    def street_runs(self, path):
+        """Stretches of a node path along one named street, in walking order, as
+        {"name", "from", "to"} - indices into the path's coordinates. Unnamed ways are left out."""
+        runs = []
+        prev_name = None
+        for i, (u, v) in enumerate(zip(path, path[1:])):
+            name = self.way_names.get(self.G[u][v]['way_id'])
+            if name is not None and name == prev_name:
+                runs[-1]["to"] = i + 1
+            elif name is not None:
+                runs.append({"name": name, "from": i, "to": i + 1})
+            prev_name = name
+        return runs
+
     def best_road(self, path):
         """Highest-rated named street along a node path, or None if it has no named street.
 
@@ -257,6 +271,7 @@ class RoutingEngine:
                 "way_ids": way_ids,
                 "names": self.route_names(way_ids),
                 "best_road": self.best_road(path),
+                "street_runs": self.street_runs(path),
             },
             "geometry": {
                 "type": "LineString",
@@ -344,6 +359,7 @@ class RoutingEngine:
                 "way_ids": way_ids,
                 "names": self.route_names(way_ids),
                 "best_road": self.best_road(path),
+                "street_runs": self.street_runs(path),
             },
             "geometry": {
                 "type": "LineString",

@@ -1,7 +1,7 @@
 
 <div align="center">
 
-# 🚶 &lt;NAZWA_PROJEKTU&gt;
+# 🚶 &lt;PrzeSpaceruj Kraków&gt;
 
 ### Powiedz, ile chcesz przejść — my wyznaczymy najprzyjemniejszą pętlę spod Twoich drzwi.
 
@@ -30,7 +30,7 @@ Wiemy, że powinniśmy się więcej ruszać — WHO zaleca dorosłym co najmniej
 
 ## 💡 Rozwiązanie
 
-**&lt;NAZWA_PROJEKTU&gt;** odwraca pytanie nawigacji. Zamiast celu podajesz **punkt startowy i dystans**, a dostajesz:
+**&lt;PrzeSpaceruj Kraków&gt;** odwraca pytanie nawigacji. Zamiast celu podajesz **punkt startowy i dystans**, a dostajesz:
 
 - 🔁 **pętlę** — wracasz dokładnie tam, skąd wyszedłeś, bez dreptania tą samą drogą w obie strony,
 - 📏 **o zadanej długości** — 2 km na przerwę w pracy, 5 km na wieczór, 10 km na weekend,
