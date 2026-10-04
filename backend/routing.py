@@ -193,20 +193,6 @@ class RoutingEngine:
         """[lon, lat] list for a node path (every node is a vertex, so no extra geometry needed)."""
         return [self.nodes_coords[n] for n in path]
 
-    def street_runs(self, path):
-        """Stretches of a node path along one named street, in walking order, as
-        {"name", "from", "to"} - indices into the path's coordinates. Unnamed ways are left out."""
-        runs = []
-        prev_name = None
-        for i, (u, v) in enumerate(zip(path, path[1:])):
-            name = self.way_names.get(self.G[u][v]['way_id'])
-            if name is not None and name == prev_name:
-                runs[-1]["to"] = i + 1
-            elif name is not None:
-                runs.append({"name": name, "from": i, "to": i + 1})
-            prev_name = name
-        return runs
-
     def best_road(self, path):
         """Highest-rated named street along a node path, or None if it has no named street.
 
@@ -271,7 +257,6 @@ class RoutingEngine:
                 "way_ids": way_ids,
                 "names": self.route_names(way_ids),
                 "best_road": self.best_road(path),
-                "street_runs": self.street_runs(path),
             },
             "geometry": {
                 "type": "LineString",
@@ -359,7 +344,6 @@ class RoutingEngine:
                 "way_ids": way_ids,
                 "names": self.route_names(way_ids),
                 "best_road": self.best_road(path),
-                "street_runs": self.street_runs(path),
             },
             "geometry": {
                 "type": "LineString",
@@ -416,15 +400,25 @@ class RoutingEngine:
         dist = np.hypot(dx, dy)
         bearing = np.degrees(np.arctan2(dx, dy)) % 360
 
-        inside = np.flatnonzero(dist <= radius_m)
-        circle = self.G.subgraph(self._node_ids[i] for i in inside)
+        # 1. Graph restricted to avoid exceeding visual circle
+        inside_full = np.flatnonzero(dist <= radius_m)
+        circle = self.G.subgraph(self._node_ids[i] for i in inside_full)
         if start_node not in circle:
             return []
         reachable = nx.node_connected_component(circle, start_node)
 
-        min_dist = radius_m * (1 - CIRCLE_EDGE_BAND)
-        edge = np.array([i for i in inside if dist[i] >= min_dist and self._node_ids[i] in reachable],
+        # 2. Target radius reduced by 20% (leaving a 20% margin for returns)
+ 
+        target_radius = radius_m * 0.8
+        inside_target = np.flatnonzero(dist <= target_radius)
+        min_dist = target_radius * (1 - CIRCLE_EDGE_BAND)
+
+        # 3. edges of smaller circle to avoid dead-ends
+        edge = np.array([i for i in inside_target if dist[i] >= min_dist 
+                         and self._node_ids[i] in reachable 
+                         and self.G.degree(self._node_ids[i]) >= 2],
                         dtype=int)
+
         if edge.size == 0:
             return []
 
@@ -447,7 +441,7 @@ class RoutingEngine:
                 if near.size == 0:
                     continue
                 # Metres along the edge from the target bearing plus metres short of the edge
-                score = np.radians(off[near]) * radius_m + (radius_m - dist[edge[near]])
+                score = np.radians(off[near]) * target_radius + (target_radius - dist[edge[near]])
                 node = self._node_ids[edge[near[np.argmin(score)]]]
                 if node not in turns:
                     turns.append(node)
