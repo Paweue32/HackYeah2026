@@ -44,7 +44,7 @@ Wiemy, że powinniśmy się więcej ruszać — WHO zaleca dorosłym co najmniej
 |---|---|
 | Odcinki dróg (OSM ways) | **72 668** |
 | Łączna długość sieci | **~3 326 km** |
-| Węzły grafu | **82 282** |
+| Węzły grafu (każdy wierzchołek odcinka) | **194 625** |
 | Wczytanie grafu do RAM (raz, przy starcie) | **~1,8 s** |
 | Wygenerowanie pętli | **~80–120 ms** |
 
@@ -65,18 +65,24 @@ flowchart LR
 ```
 
 ### 1. Dane
-Drogi pobieramy z **Overpass API** (OpenStreetMap) — typy `primary`, `secondary`, `tertiary`, `footway`, `pedestrian` w granicach administracyjnych Krakowa. Skrypt ma listę 7 mirrorów Overpassa i przełącza się na kolejny, gdy któryś nie odpowiada. Długość każdego odcinka liczymy geodezyjnie, a całość trafia do tabeli `ways` (`way_id`, `coordinates`, `distance`, `way_rating`).
+Drogi pobieramy z **Overpass API** (OpenStreetMap) — typy `primary`, `secondary`, `tertiary`, `footway`, `pedestrian` w granicach administracyjnych Krakowa. Skrypt ma listę 7 mirrorów Overpassa i przełącza się na kolejny, gdy któryś nie odpowiada. Długość każdego odcinka liczymy geodezyjnie, a całość trafia do tabeli `ways` (`way_id`, `coordinates`, `distance`, `way_rating`, `ratings_count`).
+
+Oceny są w skali **1–10**: `way_rating` to **średnia** ocen odcinka, a `ratings_count` to liczba ocen, z których ją policzono (`0` = brak ocen, wtedy `way_rating` = 5,0). Nową ocenę $g$ dolicza się jako `way_rating = (way_rating·n + g) / (n + 1)`. Kolumny dodaje (idempotentnie) `uv run python init_db.py`.
 
 ### 2. Graf z „kosztem przyjemności”
-Przy starcie serwera `RoutingEngine` wczytuje wszystkie odcinki do nieskierowanego grafu NetworkX — **raz**, dzięki czemu każde zapytanie użytkownika to tylko obliczenia w pamięci. Waga krawędzi to nie sama długość, a **koszt spaceru**:
+Przy starcie serwera `RoutingEngine` wczytuje wszystkie odcinki do nieskierowanego grafu NetworkX — **raz**, z węzłem w każdym wierzchołku drogi (drogi w OSM łączą się też w środku, nie tylko na końcach) i tylko z największą spójną składową, dzięki czemu każde zapytanie użytkownika to tylko obliczenia w pamięci. Waga krawędzi to nie sama długość, a **koszt spaceru**:
 
 $$
-w = d \cdot (11 - r) \cdot \varepsilon, \qquad \varepsilon \sim U(0.9,\ 1.1)
+\text{koszt} = d \cdot (11 - r), \qquad w = \text{koszt} \cdot \varepsilon, \quad \varepsilon \sim U(0.9,\ 1.1)
 $$
 
-gdzie $d$ to długość odcinka w metrach, a $r$ to jego ocena. Ulica oceniona wysoko jest dla algorytmu „tańsza”, więc chętniej nią poprowadzi trasę — nawet jeśli to kawałek dłużej. Szum $\varepsilon$ sprawia, że remisy rozstrzygają się za każdym razem inaczej.
+gdzie $d$ to długość odcinka w metrach, a $r$ to jego średnia ocena (1–10, `MAX_GRADE = 11`). Trasy A→B używają dokładnego `koszt`, a pętle zaszumionego $w$. Ulica oceniona wysoko jest dla algorytmu „tańsza”, więc chętniej nią poprowadzi trasę — nawet jeśli to kawałek dłużej. Szum $\varepsilon$ sprawia, że remisy rozstrzygają się za każdym razem inaczej.
 
-### 3. Algorytm pętli (`generate_loop`)
+### 3. Trasa A→B (`find_route`)
+
+Start i cel dociągamy do najbliższych węzłów, a potem A* szuka ścieżki o **najniższym koszcie** $\sum d \cdot (11 - r)$, a nie najkrótszej. Heurystyka (odległość w linii prostej) nigdy nie przeszacowuje, bo najtańszy odcinek kosztuje $d \cdot 1$, więc wynik jest optymalny. Wynik to GeoJSON `Feature` z `length_m`, `cost`, `way_ids` i `shortest_length_m` (dla porównania). Zwraca go `POST /generate/` w trybie `two_points`.
+
+### 4. Algorytm pętli (`generate_loop`)
 
 1. **Korekta na krętość miasta.** Trasa po ulicach jest średnio ~1,3× dłuższa niż w linii prostej (*detour index*), więc żądany dystans dzielimy przez 1,3, żeby realnie przejść tyle, ile użytkownik chciał.
 2. **Losowy punkt zwrotny.** Losujemy kierunek 0–360° i wzorem na odległość po kole wielkim wyznaczamy punkt w połowie tego dystansu.
@@ -121,6 +127,15 @@ Test bez serwera — zapisuje trasę do `test_route.geojson`, którą można wkl
 uv run python test_routing.py
 ```
 
+Sprawdzenie trasy A→B bez frontendu — waliduje trasę (spójność, koszt przeliczony z ocen w bazie, koszt ≤ kosztu najkrótszej) i zapisuje `route_check.html` (niebieska = najtańsza, szara = najkrótsza):
+
+```bash
+uv run python test_ab_routing.py                                # testy na małej, ręcznej mapie
+uv run python check_route.py                                    # Rynek Główny -> Kazimierz
+uv run python check_route.py 50.0614 19.9383 50.0515 19.9445    # start_lat start_lon end_lat end_lon
+uv run python check_route.py --demo-ratings                     # losowe oceny na kopii bazy
+```
+
 ## 📡 API
 
 | Metoda | Endpoint | Parametry | Opis |
@@ -135,8 +150,10 @@ uv run python test_routing.py
 ├── main.py               # serwer FastAPI — ładuje graf przy starcie, wystawia /map/
 ├── routing.py            # RoutingEngine: graf, wagi, algorytm pętli, budowa GeoJSON
 ├── test_routing.py       # test end-to-end silnika → test_route.geojson
+├── test_ab_routing.py    # testy trasy A→B na małej mapie
+├── check_route.py        # walidacja trasy A→B + podgląd route_check.html
 ├── hackathon_map.db      # SQLite z 72 668 odcinkami dróg Krakowa (tabela ways)
-├── init_db.py            # schemat tabeli nodes (oceny: suma / liczba / średnia)
+├── init_db.py            # schemat: tabela nodes + kolumny ocen w ways (średnia, liczba)
 ├── mock_data.py          # pobieranie sieci pieszej przez OSMnx + losowe oceny (dev)
 ├── cache/                # cache odpowiedzi Overpass/Nominatim z OSMnx
 └── pyproject.toml        # zależności (uv)
@@ -171,13 +188,13 @@ Kontrakt jest prosty: frontend wysyła `start_lon`, `start_lat`, `distance_m` i 
 - ✅ Sieć dróg całego Krakowa w SQLite (Overpass API)
 - ✅ Graf w RAM i pętla o zadanej długości w ~0,1 s
 - ✅ Wagi uwzględniające ocenę odcinka + losowość tras
+- ✅ Tryb A→B „naokoło” — trasa o najniższym koszcie `długość · (11 − ocena)`
+- ✅ Spójny graf: węzeł w każdym wierzchołku, największa spójna składowa
 - ✅ API FastAPI zwracające GeoJSON i przeładowanie grafu bez restartu
 
 **Następne kroki:**
-- ⭐ **Oceny od społeczności** — użytkownik ocenia odcinek po spacerze, a średnia (`sum_ratings / ratings_count`) zasila `way_rating`. Obecnie wszystkie odcinki mają ocenę domyślną.
+- ⭐ **Oceny od społeczności** — użytkownik ocenia odcinek po spacerze, a średnia trafia do `way_rating`, a `ratings_count` rośnie (kolumny już są). Obecnie wszystkie odcinki mają ocenę domyślną.
 - 🔀 **3 alternatywne trasy** do wyboru (k-najkrótszych ścieżek, prace w `calculating_weights.py`)
-- 📍 **Tryb A→B „naokoło”** — spacer do celu najprzyjemniejszą, a nie najkrótszą drogą
-- 🧩 **Lepsza spójność grafu** — dzielenie odcinków na skrzyżowaniach i przyciąganie do największej spójnej składowej, żeby pętla wyznaczała się z każdego punktu startowego
 - 🌳 **Automatyczne oceny z danych** — bliskość zieleni, wody, natężenie ruchu, oświetlenie
 
 

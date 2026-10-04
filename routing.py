@@ -1,86 +1,202 @@
 import networkx as nx
+import numpy as np
 import sqlite3
 import random
 import math
 import json
+
+EARTH_RADIUS_M = 6378137.0
+
+# Ratings are on a 1-10 scale; cost of a segment = length * (MAX_GRADE - grade),
+# so a 10-rated street costs 1 per meter and a 1-rated one costs 10 per meter.
+MIN_GRADE = 1
+MAX_RATED_GRADE = 10
+MAX_GRADE = 11
+DEFAULT_GRADE = 5.0  # unrated ways (ratings_count = 0)
+
+
+def node_id(lon, lat):
+    """Node key from exact coordinates - OSM ways that share a vertex share identical coords."""
+    return f"{lat:.7f}_{lon:.7f}"
+
+
+def haversine_m(lon1, lat1, lon2, lat2):
+    """Great-circle distance in meters."""
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = phi2 - phi1
+    dlmb = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlmb / 2) ** 2
+    return 2 * EARTH_RADIUS_M * math.asin(math.sqrt(a))
+
+
+def grade_of(rating):
+    """Average rating from the DB clamped to the 1-10 scale (DEFAULT_GRADE when unrated)."""
+    if rating is None:
+        return DEFAULT_GRADE
+    return min(max(float(rating), MIN_GRADE), MAX_RATED_GRADE)
+
+
+def segment_cost(length, rating):
+    return length * (MAX_GRADE - grade_of(rating))
+
 
 class RoutingEngine:
     def __init__(self, db_path='hackathon_map.db'):
         self.db_path = db_path
         self.G = nx.Graph()  # creating undirected graph for pedestrians
         self.nodes_coords = {} # dictionary for quickly finding the nearest node
+        self._node_ids = []
+        self._node_lons = np.empty(0)
+        self._node_lats = np.empty(0)
 
     def load_graph_from_db(self):
         """Loads data from the table into the NetworkX engine."""
         print("Loading graph from database...")
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        cursor.execute("SELECT way_id, way_rating, coordinates FROM ways")
+        rows = cursor.fetchall()
+        conn.close()
 
-        # Zaktualizowane zapytanie - dostosowane do tabeli kolegi (tabela nazywa się "ways", a nie "edges")
-        cursor.execute("SELECT way_id, distance, way_rating, coordinates FROM ways")
-        
-        for row in cursor.fetchall():
-            way_id, length, rating, geometry_str = row
-            
+        edges = {}  # (u, v) -> edge attributes; bulk-inserted into the graph afterwards
+        nodes_coords = {}
+
+        for way_id, rating, geometry_str in rows:
             try:
-                # Parsujemy JSON z tabeli
                 coords_list = json.loads(geometry_str) if isinstance(geometry_str, str) else geometry_str
-                
-                # Konwertujemy format kolegi {"lat": Y, "lon": X} na naszą listę [lon, lat]
-                coords = [[p["lon"], p["lat"]] for p in coords_list]
-                
-            except Exception as e:
+                # {"lat": Y, "lon": X} -> [lon, lat]
+                coords = [[round(p["lon"], 7), round(p["lat"], 7)] for p in coords_list]
+            except Exception:
                 continue
 
             if not coords or len(coords) < 2:
                 continue
 
-            # Ustawiamy punkty początkowe i końcowe jako unikalne ID węzłów
-            start_point = coords[0]
-            end_point = coords[-1]
-
-            u = f"{start_point[1]:.4f}_{start_point[0]:.4f}"
-            v = f"{end_point[1]:.4f}_{end_point[0]:.4f}"
-
-            if u == v:
-                continue
-
-            safe_rating = rating if rating is not None else 5 
+            # One noise draw per way, so a whole street is consistently "better" or "worse" in loops
             noise = random.uniform(0.9, 1.1)
-            custom_weight = (length if length else 100) * (11 - safe_rating) * noise
 
-            self.G.add_edge(u, v, 
-                            weight=custom_weight, 
-                            length=length, 
-                            geometry=json.dumps(coords))
-            
-            self.nodes_coords[u] = coords[0]
-            self.nodes_coords[v] = coords[-1]
-                
-        conn.close()
-        print(f"Graph loaded! Number of nodes: {self.G.number_of_nodes()}")
+            # Every vertex becomes a node. OSM ways cross and join each other at interior
+            # vertices, so connecting only the first and last point leaves the graph in islands.
+            for a, b in zip(coords, coords[1:]):
+                u, v = node_id(*a), node_id(*b)
+                if u == v:
+                    continue
+
+                length = haversine_m(a[0], a[1], b[0], b[1])
+                cost = segment_cost(length, rating)
+                key = (u, v) if u < v else (v, u)
+
+                # Two ways can share a segment - keep the cheaper one
+                if key in edges and edges[key]['cost'] <= cost:
+                    continue
+
+                edges[key] = {
+                    'length': length,
+                    'cost': cost,            # exact length * (MAX_GRADE - grade), used for A -> B
+                    'weight': cost * noise,  # randomised, used for loops
+                    'way_id': way_id,
+                    'geometry': json.dumps([a, b]),
+                }
+                nodes_coords[u] = a
+                nodes_coords[v] = b
+
+        G = nx.Graph()
+        G.add_edges_from((u, v, attrs) for (u, v), attrs in edges.items())
+
+        # Keep only the largest connected component, so every snapped point is reachable
+        if G.number_of_nodes() > 0:
+            largest = max(nx.connected_components(G), key=len)
+            G.remove_nodes_from([n for n in list(G.nodes) if n not in largest])
+            nodes_coords = {n: nodes_coords[n] for n in G.nodes}
+
+        self.G = G
+        self.nodes_coords = nodes_coords
+        self._node_ids = list(nodes_coords.keys())
+        self._node_lons = np.array([c[0] for c in nodes_coords.values()])
+        self._node_lats = np.array([c[1] for c in nodes_coords.values()])
+
+        print(f"Graph loaded! Number of nodes: {self.G.number_of_nodes()}, edges: {self.G.number_of_edges()}")
 
     def find_nearest_node(self, lon, lat):
         """Finds the nearest node, taking into account the curvature of the Earth."""
-        nearest_node = None
-        min_dist = float('inf')
-        
+        if not self._node_ids:
+            return None
+
         # Correction factor for latitude (Kraków ~50 degrees)
         cos_lat = math.cos(math.radians(lat))
-        
-        for node_id, coords in self.nodes_coords.items():
-            node_lon, node_lat = coords[0], coords[1]
-            
-            # Corrected Pythagoras (local approximation)
-            dx = (node_lon - lon) * cos_lat
-            dy = (node_lat - lat)
-            dist = dx**2 + dy**2
-            
-            if dist < min_dist:
-                min_dist = dist
-                nearest_node = node_id
-                
-        return nearest_node
+
+        # Corrected Pythagoras (local approximation), vectorised over all nodes
+        dx = (self._node_lons - lon) * cos_lat
+        dy = self._node_lats - lat
+        return self._node_ids[int(np.argmin(dx * dx + dy * dy))]
+
+    def _straight_line_m(self, u, v):
+        (lon1, lat1), (lon2, lat2) = self.nodes_coords[u], self.nodes_coords[v]
+        return haversine_m(lon1, lat1, lon2, lat2)
+
+    def path_length(self, path):
+        """Real walking length of a node path in meters."""
+        return sum(self.G[u][v]['length'] for u, v in zip(path, path[1:]))
+
+    def path_cost(self, path):
+        """Sum of length * (MAX_GRADE - grade) over a node path."""
+        return sum(self.G[u][v]['cost'] for u, v in zip(path, path[1:]))
+
+    def path_way_ids(self, path):
+        """Ordered OSM way ids the path walks along, without consecutive repeats."""
+        way_ids = []
+        for u, v in zip(path, path[1:]):
+            way_id = self.G[u][v]['way_id']
+            if not way_ids or way_ids[-1] != way_id:
+                way_ids.append(way_id)
+        return way_ids
+
+    def path_coordinates(self, path):
+        """[lon, lat] list for a node path (every node is a vertex, so no extra geometry needed)."""
+        return [self.nodes_coords[n] for n in path]
+
+    def lowest_cost_path(self, source, target):
+        """Node path minimising sum of length * (MAX_GRADE - grade).
+
+        A* with straight-line distance as the heuristic: the cheapest possible segment
+        costs length * (MAX_GRADE - MAX_RATED_GRADE) = length * 1 >= straight-line distance,
+        so the heuristic never overestimates and the result is optimal.
+        """
+        return nx.astar_path(self.G, source, target, heuristic=self._straight_line_m, weight='cost')
+
+    def shortest_path(self, source, target):
+        """Node path minimising pure walking length (for comparison)."""
+        return nx.astar_path(self.G, source, target, heuristic=self._straight_line_m, weight='length')
+
+    def find_route(self, start_lon, start_lat, end_lon, end_lat):
+        """Lowest-cost walk from A to B as a GeoJSON Feature, or None if there is none."""
+        if self.G.number_of_nodes() == 0:
+            self.load_graph_from_db()
+
+        start_node = self.find_nearest_node(start_lon, start_lat)
+        end_node = self.find_nearest_node(end_lon, end_lat)
+        if start_node is None or end_node is None or start_node == end_node:
+            return None
+
+        try:
+            path = self.lowest_cost_path(start_node, end_node)
+            shortest = self.shortest_path(start_node, end_node)
+        except nx.NetworkXNoPath:
+            return None
+
+        return {
+            "type": "Feature",
+            "properties": {
+                "length_m": round(self.path_length(path), 1),
+                "cost": round(self.path_cost(path), 1),
+                "shortest_length_m": round(self.path_length(shortest), 1),
+                "way_ids": self.path_way_ids(path),
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": self.path_coordinates(path),
+            },
+        }
 
     def calculate_midpoint(self, lon, lat, distance_m, bearing_deg):
         """Calculates the midpoint of the path."""
