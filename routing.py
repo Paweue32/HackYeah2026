@@ -22,6 +22,10 @@ CIRCLE_EDGE_BAND = 0.1
 LOOP_TURNS = 3
 LOOP_ARC = 0.6
 LOOP_REUSE_PENALTY = 5.0
+# two_points alternatives: an edge used by an earlier suggestion costs this much more for the next
+# one, and a suggestion longer than ALT_MAX_STRETCH times the first is dropped as a pointless detour
+ALT_REUSE_PENALTY = 2.0
+ALT_MAX_STRETCH = 1.5
 
 # OSM tags of the ways, downloaded by generate_ratings.py - the only place street names live
 WAY_TAGS_PATH = os.path.join("cache", "ratings_way_tags.json")
@@ -61,6 +65,7 @@ class RoutingEngine:
         self._node_lons = np.empty(0)
         self._node_lats = np.empty(0)
         self.way_names = {}  # way_id -> street name, only for named ways
+        self.way_grades = {}  # way_id -> rating on the 1-10 scale (DEFAULT_GRADE when unrated)
 
     def load_way_names(self, tags_path=WAY_TAGS_PATH):
         """Reads street names from the OSM tags cache; without the cache every way stays unnamed."""
@@ -92,6 +97,7 @@ class RoutingEngine:
 
         edges = {}  # (u, v) -> edge attributes; bulk-inserted into the graph afterwards
         nodes_coords = {}
+        self.way_grades = {way_id: grade_of(rating) for way_id, rating, _ in rows}
 
         for way_id, rating, geometry_str in rows:
             try:
@@ -187,6 +193,42 @@ class RoutingEngine:
         """[lon, lat] list for a node path (every node is a vertex, so no extra geometry needed)."""
         return [self.nodes_coords[n] for n in path]
 
+    def best_road(self, path):
+        """Highest-rated named street along a node path, or None if it has no named street.
+
+        A street is all of its ways on the path, rated by their length-weighted average;
+        ties go to the longer one. Its geometry is a MultiLineString - one line per
+        stretch the path walks along it.
+        """
+        roads = {}  # name -> {"length", "graded" (sum of length * grade), "lines"}
+        prev_name = None
+        for u, v in zip(path, path[1:]):
+            edge = self.G[u][v]
+            name = self.way_names.get(edge['way_id'])
+            if name is None:
+                prev_name = None
+                continue
+            road = roads.setdefault(name, {"length": 0.0, "graded": 0.0, "lines": []})
+            road["length"] += edge['length']
+            road["graded"] += edge['length'] * self.way_grades.get(edge['way_id'], DEFAULT_GRADE)
+            if name == prev_name:
+                road["lines"][-1].append(self.nodes_coords[v])
+            else:
+                road["lines"].append([self.nodes_coords[u], self.nodes_coords[v]])
+            prev_name = name
+
+        if not roads:
+            return None
+        # Rounded, so float noise in the averages doesn't decide ties that should go to length
+        name, road = max(roads.items(),
+                         key=lambda r: (round(r[1]["graded"] / r[1]["length"], 6), r[1]["length"]))
+        return {
+            "name": name,
+            "rating": round(road["graded"] / road["length"], 2),
+            "length_m": round(road["length"], 1),
+            "geometry": {"type": "MultiLineString", "coordinates": road["lines"]},
+        }
+
     def lowest_cost_path(self, source, target, graph=None):
         """Node path minimising sum of length * (MAX_GRADE - grade).
 
@@ -214,6 +256,7 @@ class RoutingEngine:
                 "shortest_length_m": round(self.path_length(shortest), 1),
                 "way_ids": way_ids,
                 "names": self.route_names(way_ids),
+                "best_road": self.best_road(path),
             },
             "geometry": {
                 "type": "LineString",
@@ -221,23 +264,58 @@ class RoutingEngine:
             },
         }
 
-    def find_route(self, start_lon, start_lat, end_lon, end_lat):
-        """Lowest-cost walk from A to B as a GeoJSON Feature, or None if there is none."""
+    def find_routes(self, start_lon, start_lat, end_lon, end_lat, count=3):
+        """Up to `count` different low-cost walks from A to B as GeoJSON Features, best first.
+
+        The first is the lowest-cost path. Every later one is searched with the edges of the
+        earlier suggestions ALT_REUSE_PENALTY times more expensive (compounding), so it
+        prefers other streets where they are not much worse. Repeats and detours longer than
+        ALT_MAX_STRETCH times the first route are dropped.
+        """
         if self.G.number_of_nodes() == 0:
             self.load_graph_from_db()
 
         start_node = self.find_nearest_node(start_lon, start_lat)
         end_node = self.find_nearest_node(end_lon, end_lat)
         if start_node is None or end_node is None or start_node == end_node:
-            return None
+            return []
 
         try:
-            path = self.lowest_cost_path(start_node, end_node)
             shortest = self.shortest_path(start_node, end_node)
         except nx.NetworkXNoPath:
-            return None
+            return []
 
-        return self.route_feature(path, shortest)
+        penalty = {}  # edge (u, v) with u < v -> cost multiplier from earlier suggestions
+
+        def weight(u, v, d):
+            return d['cost'] * penalty.get((u, v) if u < v else (v, u), 1.0)
+
+        paths = []
+        max_length = None
+        # A few extra attempts, since some come back as repeats or detours
+        for _ in range(count * 2):
+            if len(paths) == count:
+                break
+            # The penalty only raises costs, so the straight-line heuristic stays admissible
+            path = nx.astar_path(self.G, start_node, end_node, heuristic=self._straight_line_m, weight=weight)
+            for u, v in zip(path, path[1:]):
+                key = (u, v) if u < v else (v, u)
+                penalty[key] = penalty.get(key, 1.0) * ALT_REUSE_PENALTY
+            if path in paths:
+                continue
+            length = self.path_length(path)
+            if max_length is None:
+                max_length = length * ALT_MAX_STRETCH
+            elif length > max_length:
+                continue
+            paths.append(path)
+
+        return [self.route_feature(path, shortest) for path in paths]
+
+    def find_route(self, start_lon, start_lat, end_lon, end_lat):
+        """Lowest-cost walk from A to B as a GeoJSON Feature, or None if there is none."""
+        routes = self.find_routes(start_lon, start_lat, end_lon, end_lat, count=1)
+        return routes[0] if routes else None
 
     def calculate_midpoint(self, lon, lat, distance_m, bearing_deg):
         """Calculates the midpoint of the path."""
@@ -265,6 +343,7 @@ class RoutingEngine:
                                               for n in turning_points],
                 "way_ids": way_ids,
                 "names": self.route_names(way_ids),
+                "best_road": self.best_road(path),
             },
             "geometry": {
                 "type": "LineString",

@@ -43,6 +43,7 @@ class RoutePayload(BaseModel):
     destination: Optional[Coordinate] = None
     point: Optional[Coordinate] = None
     distance: Optional[float] = None
+    count: int = 3  # how many suggestions to return, clamped to 1..MAX_ROUTES
 
 
 class DiscardPayload(BaseModel):
@@ -62,29 +63,27 @@ RefreshPayload.model_rebuild()
 FeedbackPayload.model_rebuild()
 
 
-color_list = ["#FF0000", "#00FF00", "#0000FF"]
+color_list = ["#FF0000", "#00FF00", "#0000FF", "#FF8C00", "#9333EA"]
+MAX_ROUTES = len(color_list)
 
 @app.post("/generate/", status_code=200)
 def process_route_generation(payload: RoutePayload, response: Response):
      routes = []
+     count = min(max(payload.count, 1), MAX_ROUTES)
      if payload.mode == "two_points" and payload.start and payload.destination:
-             route = engine.find_route(payload.start.lng, payload.start.lat,
-                                       payload.destination.lng, payload.destination.lat)
-             if route is None:
+             routes = engine.find_routes(payload.start.lng, payload.start.lat,
+                                         payload.destination.lng, payload.destination.lat, count)
+             if not routes:
                   response.status_code = status.HTTP_400_BAD_REQUEST
                   return {
                        "status": "failure",
                        "message": "No route between these points"
                   }
-
-             route["properties"]["id"] = str(uuid.uuid4())
-             route["properties"]["color"] = random.choice(color_list)
-             routes = [route]
  
      elif payload.mode == "point_distance" and payload.point:
              # Round trips from the point that turn near the edge of a circle of radius `distance` around it
              routes = engine.find_loops_on_circle(payload.point.lng, payload.point.lat,
-                                                  payload.distance or 3000)
+                                                  payload.distance or 3000, count)
              if not routes:
                   response.status_code = status.HTTP_400_BAD_REQUEST
                   return {
@@ -92,9 +91,9 @@ def process_route_generation(payload: RoutePayload, response: Response):
                        "message": "No route from this point"
                   }
 
-             for i, route in enumerate(routes):
-                  route["properties"]["id"] = str(uuid.uuid4())
-                  route["properties"]["color"] = color_list[i % len(color_list)]
+     for i, route in enumerate(routes):
+          route["properties"]["id"] = str(uuid.uuid4())
+          route["properties"]["color"] = color_list[i % len(color_list)]
 
      for route in routes:
           active_routes[route["properties"]["id"]] = route["properties"].get("way_ids", [1, 2, 3])
