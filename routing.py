@@ -15,6 +15,9 @@ MAX_RATED_GRADE = 10
 MAX_GRADE = 11
 DEFAULT_GRADE = 5.0  # unrated ways (ratings_count = 0)
 
+# point_distance destinations must lie within this fraction of the radius from the circle's edge
+CIRCLE_EDGE_BAND = 0.1
+
 # OSM tags of the ways, downloaded by generate_ratings.py - the only place street names live
 WAY_TAGS_PATH = os.path.join("cache", "ratings_way_tags.json")
 
@@ -179,18 +182,39 @@ class RoutingEngine:
         """[lon, lat] list for a node path (every node is a vertex, so no extra geometry needed)."""
         return [self.nodes_coords[n] for n in path]
 
-    def lowest_cost_path(self, source, target):
+    def lowest_cost_path(self, source, target, graph=None):
         """Node path minimising sum of length * (MAX_GRADE - grade).
 
         A* with straight-line distance as the heuristic: the cheapest possible segment
         costs length * (MAX_GRADE - MAX_RATED_GRADE) = length * 1 >= straight-line distance,
         so the heuristic never overestimates and the result is optimal.
+        `graph` restricts the search to part of the network (default: all of it).
         """
-        return nx.astar_path(self.G, source, target, heuristic=self._straight_line_m, weight='cost')
+        graph = self.G if graph is None else graph
+        return nx.astar_path(graph, source, target, heuristic=self._straight_line_m, weight='cost')
 
-    def shortest_path(self, source, target):
+    def shortest_path(self, source, target, graph=None):
         """Node path minimising pure walking length (for comparison)."""
-        return nx.astar_path(self.G, source, target, heuristic=self._straight_line_m, weight='length')
+        graph = self.G if graph is None else graph
+        return nx.astar_path(graph, source, target, heuristic=self._straight_line_m, weight='length')
+
+    def route_feature(self, path, shortest):
+        """GeoJSON Feature of a lowest-cost node path, with the shortest one for comparison."""
+        way_ids = self.path_way_ids(path)
+        return {
+            "type": "Feature",
+            "properties": {
+                "length_m": round(self.path_length(path), 1),
+                "cost": round(self.path_cost(path), 1),
+                "shortest_length_m": round(self.path_length(shortest), 1),
+                "way_ids": way_ids,
+                "names": self.route_names(way_ids),
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": self.path_coordinates(path),
+            },
+        }
 
     def find_route(self, start_lon, start_lat, end_lon, end_lat):
         """Lowest-cost walk from A to B as a GeoJSON Feature, or None if there is none."""
@@ -208,21 +232,7 @@ class RoutingEngine:
         except nx.NetworkXNoPath:
             return None
 
-        way_ids = self.path_way_ids(path)
-        return {
-            "type": "Feature",
-            "properties": {
-                "length_m": round(self.path_length(path), 1),
-                "cost": round(self.path_cost(path), 1),
-                "shortest_length_m": round(self.path_length(shortest), 1),
-                "way_ids": way_ids,
-                "names": self.route_names(way_ids),
-            },
-            "geometry": {
-                "type": "LineString",
-                "coordinates": self.path_coordinates(path),
-            },
-        }
+        return self.route_feature(path, shortest)
 
     def calculate_midpoint(self, lon, lat, distance_m, bearing_deg):
         """Calculates the midpoint of the path."""
@@ -237,31 +247,49 @@ class RoutingEngine:
         return math.degrees(new_lon_rad), math.degrees(new_lat_rad)
 
     def find_routes_on_circle(self, lon, lat, radius_m, count=3):
-        """Lowest-cost walks from a point to `count` destinations on a circle of radius_m around it.
+        """Lowest-cost walks from a point to up to `count` points on the edge of a circle of
+        radius_m around it, using only roads inside the circle.
 
-        Destinations are spread evenly around the circle from a random starting bearing, so every
-        request suggests different directions. A destination with no route, or one that snaps to
-        the same node as an earlier one, is skipped and the bearings in between are tried instead.
+        The circle is cut into `count` equal sectors from a random starting bearing (so every
+        request suggests different directions). In each sector the destination is the node
+        farthest from the centre that can be walked to without leaving the circle; a sector
+        whose reachable roads end more than CIRCLE_EDGE_BAND short of the edge (a river,
+        railway, ...) gives no route.
         """
+        if self.G.number_of_nodes() == 0:
+            self.load_graph_from_db()
+
+        start_node = self.find_nearest_node(lon, lat)
+        if start_node is None:
+            return []
+
+        # Local metric projection around the centre: distance and bearing of every node
+        cos_lat = math.cos(math.radians(lat))
+        dx = np.radians(self._node_lons - lon) * cos_lat * EARTH_RADIUS_M
+        dy = np.radians(self._node_lats - lat) * EARTH_RADIUS_M
+        dist = np.hypot(dx, dy)
+        bearing = np.degrees(np.arctan2(dx, dy)) % 360
+
+        inside = np.flatnonzero(dist <= radius_m)
+        circle = self.G.subgraph(self._node_ids[i] for i in inside)
+        if start_node not in circle:
+            return []
+        reachable = nx.node_connected_component(circle, start_node)
+
         step = 360.0 / count
         first = random.uniform(0, 360)
-        bearings = [first + i * step for i in range(count)]
-        bearings += [b + step / 2 for b in bearings]  # fallbacks, halfway between
+        min_dist = radius_m * (1 - CIRCLE_EDGE_BAND)
+        candidates = [i for i in inside if dist[i] >= min_dist and self._node_ids[i] in reachable]
 
-        routes, ends = [], set()
-        for bearing in bearings:
-            if len(routes) == count:
-                break
-            dest_lon, dest_lat = self.calculate_midpoint(lon, lat, radius_m, bearing % 360)
-            route = self.find_route(lon, lat, dest_lon, dest_lat)
-            if route is None:
-                continue
-            end = tuple(route["geometry"]["coordinates"][-1])
-            if end in ends:
-                continue
-            ends.add(end)
-            routes.append(route)
-        return routes
+        end_nodes = []
+        for sector in range(count):
+            # Sector `sector` covers [first + sector*step, first + (sector+1)*step)
+            in_sector = [i for i in candidates if (bearing[i] - first) % 360 // step == sector]
+            if in_sector:
+                end_nodes.append(self._node_ids[max(in_sector, key=lambda i: dist[i])])
+        return [self.route_feature(self.lowest_cost_path(start_node, n, circle),
+                                   self.shortest_path(start_node, n, circle))
+                for n in end_nodes]
 
     def generate_loop(self, start_lon, start_lat, total_distance_m=3000):
         """Main algorithm for generating a loop."""
