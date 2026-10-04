@@ -1,14 +1,14 @@
-# Uruchomienie projektu lokalnie
+# Running the project locally
 
-### Zainstaluj zależności
+### Install dependencies
 
-`npm install`
+npm install
 
-### Uruchom aplikację
+### Run the application
 
-`npm run dev`
+npm run dev
 
-aplikacja uruchamia się na http://localhost:5173/
-zalecane jest niezmienianie portu gdyż będą problemy z CORS
+The application runs at http://localhost:5173/
+It is recommended not to change the port, as this will cause CORS issues.
 
-aplikacja wysyła informacje na server na http://localhost:8000/
+The application sends data to the server at http://localhost:8000/
