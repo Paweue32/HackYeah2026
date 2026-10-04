@@ -82,71 +82,19 @@ def process_route_generation(payload: RoutePayload, response: Response):
              routes = [route]
  
      elif payload.mode == "point_distance" and payload.point:
-             p_lat, p_lng = payload.point.lat, payload.point.lng
-             distance_km = (payload.distance or 3000) / 1000.0
-             offset = distance_km * 0.008
- 
-             # Route 1: Heading North-East
-
-             coordinates = [
-                  [p_lat, p_lng],
-                  [p_lat + offset * 0.5, p_lng + offset * 0.3],
-                  [p_lat + offset, p_lng + offset * 0.6]
-             ]
-
-             route1 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+             # Same lowest-cost A -> B routing, with the B's on a circle of radius `distance` around the point
+             routes = engine.find_routes_on_circle(payload.point.lng, payload.point.lat,
+                                                   payload.distance or 3000)
+             if not routes:
+                  response.status_code = status.HTTP_400_BAD_REQUEST
+                  return {
+                       "status": "failure",
+                       "message": "No route from this point"
                   }
-             }
- 
-             # Route 2: Heading South-East
 
-             coordinates = [
-                  [p_lat, p_lng],
-                  [p_lat - offset * 0.4, p_lng + offset * 0.5],
-                  [p_lat - offset * 0.8, p_lng + offset * 0.8]
-             ]
-
-             route2 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
-                  }
-             }
- 
-             # Route 3: Heading West
-
-             coordinates = [
-                  [p_lat, p_lng],
-                  [p_lat + offset * 0.2, p_lng - offset * 0.5],
-                  [p_lat - offset * 0.3, p_lng - offset * 0.9]
-             ]
-
-             route3 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
-                  }
-             }
- 
-             routes = [route1, route2, route3]
+             for i, route in enumerate(routes):
+                  route["properties"]["id"] = str(uuid.uuid4())
+                  route["properties"]["color"] = color_list[i % len(color_list)]
 
      for route in routes:
           active_routes[route["properties"]["id"]] = route["properties"].get("way_ids", [1, 2, 3])
