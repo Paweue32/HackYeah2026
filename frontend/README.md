@@ -2,11 +2,11 @@
 
 ### Install dependencies
 
-npm install
+`npm install`
 
 ### Run the application
 
-npm run dev
+`npm run dev`
 
 The application runs at http://localhost:5173/
 It is recommended not to change the port, as this will cause CORS issues.
