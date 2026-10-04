@@ -400,17 +400,25 @@ class RoutingEngine:
         dist = np.hypot(dx, dy)
         bearing = np.degrees(np.arctan2(dx, dy)) % 360
 
-        inside = np.flatnonzero(dist <= radius_m)
-        circle = self.G.subgraph(self._node_ids[i] for i in inside)
+        # 1. Graph restricted to avoid exceeding visual circle
+        inside_full = np.flatnonzero(dist <= radius_m)
+        circle = self.G.subgraph(self._node_ids[i] for i in inside_full)
         if start_node not in circle:
             return []
         reachable = nx.node_connected_component(circle, start_node)
 
-        min_dist = radius_m * (1 - CIRCLE_EDGE_BAND)
-        edge = np.array([i for i in inside if dist[i] >= min_dist 
-                 and self._node_ids[i] in reachable 
-                 and self.G.degree(self._node_ids[i]) >= 2],
-                dtype=int)
+        # 2. Target radius reduced by 20% (leaving a 20% margin for returns)
+ 
+        target_radius = radius_m * 0.8
+        inside_target = np.flatnonzero(dist <= target_radius)
+        min_dist = target_radius * (1 - CIRCLE_EDGE_BAND)
+
+        # 3. edges of smaller circle to avoid dead-ends
+        edge = np.array([i for i in inside_target if dist[i] >= min_dist 
+                         and self._node_ids[i] in reachable 
+                         and self.G.degree(self._node_ids[i]) >= 2],
+                        dtype=int)
+
         if edge.size == 0:
             return []
 
@@ -433,13 +441,13 @@ class RoutingEngine:
                 if near.size == 0:
                     continue
                 # Metres along the edge from the target bearing plus metres short of the edge
-                score = np.radians(off[near]) * radius_m + (radius_m - dist[edge[near]])
+                score = np.radians(off[near]) * target_radius + (target_radius - dist[edge[near]])
                 node = self._node_ids[edge[near[np.argmin(score)]]]
                 if node not in turns:
                     turns.append(node)
             if not turns:
                 continue
-            path = self.loop_through([start_node, *turns, start_node])
+            path = self.loop_through([start_node, *turns, start_node], circle)
             if path is not None:
                 loops.append(self.loop_feature(path, turns, (lon, lat), radius_m))
         return loops
