@@ -19,6 +19,7 @@ engine = RoutingEngine()
 async def lifespan(app: FastAPI):
      # Graph is loaded once into RAM; every request is then only in-memory computation
      engine.load_graph_from_db()
+     engine.load_way_names()
      yield
 
 app = FastAPI(lifespan=lifespan)
@@ -184,6 +185,20 @@ def process_refresh_path(payload: RefreshPayload, response: Response):
       return {
            "status": "failure",
            "message": "The route ID is invalid. Perhaps it has timed out"
+      }
+
+@app.get("/routes/{route_id}/names", status_code=200)
+def process_route_names(route_id: str, response: Response):
+      if route_id not in active_routes:
+           response.status_code = status.HTTP_400_BAD_REQUEST
+           return {
+                "status": "failure",
+                "message": "The route ID is invalid. Perhaps it has timed out"
+           }
+
+      return {
+           "status": "success",
+           "names": engine.route_names(active_routes[route_id])
       }
 
 @app.post("/feedback/")
