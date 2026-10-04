@@ -9,11 +9,21 @@ import uuid
 import time
 from cachetools import TTLCache
 import random
-from routing import RoutingEngine
-import json
 
-app = FastAPI()
-active_routes = TTLCache(maxsize=100, ttl=30*60)
+from routing import RoutingEngine
+
+
+engine = RoutingEngine()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+     # Graph is loaded once into RAM; every request is then only in-memory computation
+     engine.load_graph_from_db()
+     engine.load_way_names()
+     yield
+
+app = FastAPI(lifespan=lifespan)
+active_routes = TTLCache(maxsize=100000, ttl=2*60)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,13 +43,14 @@ class RoutePayload(BaseModel):
     destination: Optional[Coordinate] = None
     point: Optional[Coordinate] = None
     distance: Optional[float] = None
+    count: int = 3  # how many suggestions to return, clamped to 1..MAX_ROUTES
 
 
 class DiscardPayload(BaseModel):
     discarded_route_ids: list[str]
 
 class RefreshPayload(BaseModel):
-    prolonged_route_id: str
+    prolonged_route_ids: list[str]
 
 class FeedbackPayload(BaseModel):
     route_id: str
@@ -52,92 +63,40 @@ RefreshPayload.model_rebuild()
 FeedbackPayload.model_rebuild()
 
 
-color_list = ["#FF0000", "#00FF00", "#0000FF"]
-engine = RoutingEngine()
-engine.load_graph_from_db()
+color_list = ["#FF0000", "#00FF00", "#0000FF", "#FF8C00", "#9333EA"]
+MAX_ROUTES = len(color_list)
 
 @app.post("/generate/", status_code=200)
 def process_route_generation(payload: RoutePayload, response: Response):
      routes = []
+     count = min(max(payload.count, 1), MAX_ROUTES)
      if payload.mode == "two_points" and payload.start and payload.destination:
-             s_lat, s_lng = payload.start.lat, payload.start.lng
-             d_lat, d_lng = payload.destination.lat, payload.destination.lng
-
-             coordinates = [
-                  [s_lat, s_lng],
-                  [(s_lat + d_lat)/2, (s_lng + d_lng)/2],
-                  [d_lat, d_lng]
-             ]
-
-             route1 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
+             routes = engine.find_routes(payload.start.lng, payload.start.lat,
+                                         payload.destination.lng, payload.destination.lat, count)
+             if not routes:
+                  response.status_code = status.HTTP_400_BAD_REQUEST
+                  return {
+                       "status": "failure",
+                       "message": "No route between these points"
                   }
-             }
-
-             coordinates = [
-                  [s_lat, s_lng],
-                  [s_lat + (d_lat - s_lat) * 0.3 + 0.006, s_lng + (d_lng - s_lng) * 0.3 - 0.006],
-                  [s_lat + (d_lat - s_lat) * 0.7 + 0.006, s_lng + (d_lng - s_lng) * 0.7 - 0.006],
-                  [d_lat, d_lng]
-             ]
- 
-             route2 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
-                  }
-             }
-
-             coordinates = [
-                  [s_lat, s_lng],
-                  [s_lat + (d_lat - s_lat) * 0.3 - 0.006, s_lng + (d_lng - s_lng) * 0.3 + 0.006],
-                  [s_lat + (d_lat - s_lat) * 0.7 - 0.006, s_lng + (d_lng - s_lng) * 0.7 + 0.006],
-                  [d_lat, d_lng]
-             ]
- 
-             route3 = {
-                  "type": "Feature",
-                  "properties": {
-                       "id": str(uuid.uuid4()),
-                       "color": random.choice(color_list)
-                  },
-                  "geometry": {
-                       "type": "LineString",
-                       "coordinates": [[curr_lng, curr_lat] for [curr_lat, curr_lng] in coordinates]
-                  }
-             }
- 
-             routes = [route1, route2, route3]
  
      elif payload.mode == "point_distance" and payload.point:
-          p_lat, p_lng = payload.point.lat, payload.point.lng
+             # Round trips from the point that turn near the edge of a circle of radius `distance` around it
+             routes = engine.find_loops_on_circle(payload.point.lng, payload.point.lat,
+                                                  payload.distance or 3000, count)
+             if not routes:
+                  response.status_code = status.HTTP_400_BAD_REQUEST
+                  return {
+                       "status": "failure",
+                       "message": "No route from this point"
+                  }
 
-          routes = [
-               {
-                    "type": "Feature",
-                    "properties": {
-                         "id": str(uuid.uuid4()),
-                         "color": random.choice(color_list)
-                    },
-                    "geometry": engine.generate_loop(p_lng, p_lat, total_distance_m=payload.distance)
-               }
-               for _ in range(0, 3)
-          ]
+     for i, route in enumerate(routes):
+          route["properties"]["id"] = str(uuid.uuid4())
+          route["properties"]["color"] = color_list[i % len(color_list)]
 
      for route in routes:
-          active_routes[route["properties"]["id"]] = [1, 2, 3]
+          active_routes[route["properties"]["id"]] = route["properties"].get("way_ids", [1, 2, 3])
  
      return {
           "type": "FeatureCollection",
@@ -163,20 +122,39 @@ def process_suggestion_discard(payload: DiscardPayload, response: Response):
 
 @app.post("/refresh/", status_code=200)
 def process_refresh_path(payload: RefreshPayload, response: Response):
-      if payload.prolonged_route_id in active_routes:
-           active_routes[payload.prolonged_route_id] = active_routes[payload.prolonged_route_id]
+      for route_id in payload.prolonged_route_ids:
+           if route_id in active_routes:
+                active_routes[route_id] = active_routes[route_id]
+           else:
+               response.status_code = status.HTTP_400_BAD_REQUEST
+               return {
+                    "status": "failure",
+                    "message": "The route ID is invalid. Perhaps it has timed out"
+               }
+      
+      return {
+           "status": "success"
+      }
+      
+
+@app.get("/routes/{route_id}/names", status_code=200)
+def process_route_names(route_id: str, response: Response):
+      if route_id not in active_routes:
+           response.status_code = status.HTTP_400_BAD_REQUEST
            return {
-                "status": "success"
+                "status": "failure",
+                "message": "The route ID is invalid. Perhaps it has timed out"
            }
 
-      response.status_code = status.HTTP_400_BAD_REQUEST
       return {
-           "status": "failure",
-           "message": "The route ID is invalid. Perhaps it has timed out"
+           "status": "success",
+           "names": engine.route_names(active_routes[route_id])
       }
 
 @app.post("/feedback/")
 def process_route_feedback(payload: FeedbackPayload):
+      if payload.route_id in active_routes:
+           active_routes.pop(payload.route_id)
       return {
             "Place": "holder"
       }
