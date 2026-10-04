@@ -1,19 +1,19 @@
-# Running the project locally
+# Uruchamianie projektu lokalnie
 
-### Install dependencies
+### Instalacja zależności
 
 ```bash
 npm install
 ```
 
-### Run the application
+### Uruchomienie aplikacji
 
 ```bash
 npm run dev
 ```
 
-The application runs at http://localhost:5173/
-It is recommended not to change the port, as this will cause CORS issues.
+Aplikacja działa pod adresem http://localhost:5173/
+Zaleca się nie zmieniać portu, ponieważ spowoduje to problemy z CORS.
 
-The application sends data to the server at http://localhost:8000/
-but this can be changed in .env
+Aplikacja przesyła dane do serwera pod adresem http://localhost:8000/
+ale można to zmienić w .env

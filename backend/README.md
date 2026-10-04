@@ -1,17 +1,18 @@
-Backend was setup using UV
+Backend został skonfigurowany za pomocą UV
+: [uv](https://docs.astral.sh/uv/) (sam zainstaluje Pythona 3.14).
 
-run
+Uruchom
 
 ```bash
 uv sync
 ```
 
-to setup
+aby przeprowadzić konfigurację
 
-and then
+a następnie
 
-```
+```bash
 uv run fastdev api
 ```
 
-to run server on http://localhost:8000/
+aby uruchomić serwer pod adresem http://localhost:8000/
