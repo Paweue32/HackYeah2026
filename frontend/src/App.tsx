@@ -16,10 +16,12 @@ import { useGeolocation } from './hooks/useGeolocation';
 import { useRouteTracking, type TripSummary } from './hooks/useRouteTracking';
 import './App.css';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 /** Tells the server the routes are still in use, so it doesn't let them expire. */
 function refreshRoutes(routeIds: string[]) {
 	if (routeIds.length === 0) return;
-	fetch('http://localhost:8000/refresh/', {
+	fetch(`${API_BASE_URL}/refresh/`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ prolonged_route_ids: routeIds }),
@@ -164,7 +166,7 @@ export function App() {
 		setIsSending(true);
 
 		try {
-			const response = await fetch('http://localhost:8000/generate/', {
+			const response = await fetch(`${API_BASE_URL}/generate/`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(payload),
@@ -191,7 +193,7 @@ export function App() {
 				),
 			};
 
-			const response = await fetch('http://localhost:8000/discard/', {
+			const response = await fetch(`${API_BASE_URL}/discard/`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(discardedRouteIds),
