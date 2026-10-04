@@ -2,20 +2,19 @@
 
     uv run python check_route.py                                   # Rynek Główny -> Kazimierz
     uv run python check_route.py 50.0614 19.9383 50.0515 19.9445   # start_lat start_lon end_lat end_lon
-    uv run python check_route.py --demo-ratings                    # random 1-10 ratings on a temp copy of the DB
 
-Writes route_check.geojson and route_check.html (open in a browser: blue = lowest cost, grey = shortest).
+Ratings come from the DB (fill them with generate_ratings.py). Writes route_check.geojson and
+route_check.html - open it in a browser: blue = lowest cost, pink = shortest, and every way
+around the route coloured by its rating (red 1 -> green 10, thin grey = unrated).
 """
 import json
 import math
-import os
-import shutil
 import sqlite3
 import sys
-import tempfile
 
 from routing import RoutingEngine, haversine_m, segment_cost
 
+DB_PATH = "hackathon_map.db"
 DEFAULT_POINTS = (50.0614, 19.9383, 50.0515, 19.9445)  # Rynek Główny -> Kazimierz
 TOLERANCE = 1e-6
 
@@ -27,15 +26,21 @@ def db_ratings(db_path):
     return ratings
 
 
-def demo_db(db_path, tmp_dir):
-    """Copy of the DB with random 1-10 ratings, so lowest-cost and shortest routes differ."""
-    path = os.path.join(tmp_dir, "demo.db")
-    shutil.copy(db_path, path)
-    conn = sqlite3.connect(path)
-    conn.execute("UPDATE ways SET way_rating = abs(random()) % 10 + 1")
-    conn.commit()
+def rated_ways_around(db_path, coords, margin_deg=0.004):
+    """[[[lon, lat], ...], rating, ratings_count] for every way in the route's bounding box."""
+    lons = [c[0] for c in coords]
+    lats = [c[1] for c in coords]
+    west, east = min(lons) - margin_deg, max(lons) + margin_deg
+    south, north = min(lats) - margin_deg, max(lats) + margin_deg
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT coordinates, way_rating, ratings_count FROM ways").fetchall()
     conn.close()
-    return path
+    ways = []
+    for coords_json, rating, count in rows:
+        line = [[round(p["lon"], 6), round(p["lat"], 6)] for p in json.loads(coords_json)]
+        if any(west <= lon <= east and south <= lat <= north for lon, lat in line):
+            ways.append([line, rating, count])
+    return ways
 
 
 def check(engine, ratings, start, end):
@@ -80,8 +85,9 @@ def check(engine, ratings, start, end):
     return route, engine.path_coordinates(shortest), checks, shortest_cost, snap_m
 
 
-def write_html(path, route, shortest_coords, start, end):
+def write_html(path, route, shortest_coords, start, end, rated_ways):
     data = json.dumps({
+        "ways": rated_ways,
         "route": route["geometry"]["coordinates"],
         "shortest": shortest_coords,
         "start": [start[0], start[1]],
@@ -94,43 +100,69 @@ def write_html(path, route, shortest_coords, start, end):
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>html,body,#map{{height:100%;margin:0}}#info{{position:absolute;z-index:1000;top:10px;right:10px;
-background:#fff;padding:8px 12px;border-radius:6px;font:13px sans-serif;box-shadow:0 1px 4px #0004}}</style>
+background:#fff;color:#222;padding:8px 12px;border-radius:6px;font:13px sans-serif;box-shadow:0 1px 4px #0004}}
+.scale{{height:8px;margin-top:6px;background:linear-gradient(90deg,hsl(0,75%,45%),hsl(60,75%,45%),hsl(120,75%,35%))}}</style>
 </head><body><div id="map"></div><div id="info"></div><script>
 const d = {data};
-const map = L.map('map');
-L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-  {{attribution: '&copy; OpenStreetMap contributors'}}).addTo(map);
+const map = L.map('map', {{preferCanvas: true}});
+// tile.openstreetmap.org ("usage policy") and CARTO ("API key required") both block pages opened
+// from file:// (no Referer) -> Esri light grey canvas, which serves tiles without a key
+const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+L.tileLayer(esri + 'World_Light_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+  maxZoom: 16, maxNativeZoom: 16,
+  attribution: 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors | routing data &copy; OpenStreetMap contributors (ODbL)'
+}}).addTo(map);
+L.tileLayer(esri + 'World_Light_Gray_Reference/MapServer/tile/{{z}}/{{y}}/{{x}}', {{maxZoom: 16, maxNativeZoom: 16}}).addTo(map);
 const ll = c => c.map(([lon, lat]) => [lat, lon]);
-L.polyline(ll(d.shortest), {{color: '#888', weight: 7, opacity: 0.6}}).addTo(map).bindTooltip('shortest');
-const r = L.polyline(ll(d.route), {{color: '#1565c0', weight: 4}}).addTo(map).bindTooltip('lowest cost');
+// Every way around the route, red (1) -> green (10); unrated = thin grey
+const ratings = L.layerGroup().addTo(map);
+for (const [line, rating, count] of d.ways) {{
+  const style = count > 0
+    ? {{color: `hsl(${{(rating - 1) / 9 * 120}}, 75%, ${{rating > 7 ? 35 : 45}}%)`, weight: 3, opacity: 0.85}}
+    : {{color: '#999', weight: 1.5, opacity: 0.6}};
+  L.polyline(ll(line), style).addTo(ratings)
+    .bindTooltip(count > 0 ? `rating ${{rating}} (${{count}} ratings)` : 'unrated (5.0)');
+}}
+// Both routes on their own panes above the ratings, each with a white casing so they never blend in.
+// The shortest is drawn wider underneath, so where the two share a street both colours stay visible.
+map.createPane('routes').style.zIndex = 450;
+const route = (coords, color, width, tip) => L.layerGroup([
+  L.polyline(ll(coords), {{pane: 'routes', color: '#fff', weight: width + 4, opacity: 1}}),
+  L.polyline(ll(coords), {{pane: 'routes', color: color, weight: width, opacity: 1}}).bindTooltip(tip, {{sticky: true}}),
+]).addTo(map);
+const shortest = route(d.shortest, '#d81b60', 9, 'shortest: ' + d.props.shortest_length_m + ' m');
+const comfy = route(d.route, '#1565c0', 4, 'lowest cost: ' + d.props.length_m + ' m');
+L.control.layers(null, {{
+  '<span style="color:#1565c0">■</span> lowest cost': comfy,
+  '<span style="color:#d81b60">■</span> shortest': shortest,
+  'ratings': ratings,
+}}, {{collapsed: false, position: 'bottomleft'}}).addTo(map);
+const r = L.featureGroup([L.polyline(ll(d.route)), L.polyline(ll(d.shortest))]);
 L.marker(d.start).addTo(map).bindTooltip('A');
 L.marker(d.end).addTo(map).bindTooltip('B');
 map.fitBounds(r.getBounds(), {{padding: [30, 30]}});
 document.getElementById('info').innerHTML =
   '<b style="color:#1565c0">lowest cost</b>: ' + d.props.length_m + ' m, cost ' + d.props.cost +
-  '<br><b style="color:#888">shortest</b>: ' + d.props.shortest_length_m + ' m<br>ways: ' + d.props.way_ids.length;
+  '<br><b style="color:#d81b60">shortest</b>: ' + d.props.shortest_length_m + ' m<br>ways: ' + d.props.way_ids.length +
+  '<div class="scale"></div><div style="display:flex;justify-content:space-between"><span>rating 1</span><span>10</span></div>';
 </script></body></html>"""
     with open(path, "w") as f:
         f.write(html)
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--demo-ratings"]
-    demo = "--demo-ratings" in sys.argv
+    args = sys.argv[1:]
     points = tuple(map(float, args)) if args else DEFAULT_POINTS
     if len(points) != 4:
         sys.exit(__doc__)
     start, end = points[:2], points[2:]
 
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = demo_db("hackathon_map.db", tmp) if demo else "hackathon_map.db"
-        engine = RoutingEngine(db_path)
-        engine.load_graph_from_db()
-        ratings = db_ratings(db_path)
-        result = check(engine, ratings, start, end)
+    engine = RoutingEngine(DB_PATH)
+    engine.load_graph_from_db()
+    result = check(engine, db_ratings(DB_PATH), start, end)
 
     route, shortest_coords, checks = result[:3]
-    print(f"\nA = {start}, B = {end}{'  (demo ratings)' if demo else ''}")
+    print(f"\nA = {start}, B = {end}")
     for name, passed in checks:
         print(f"  {'✅' if passed else '❌'} {name}")
     if route is None:
@@ -144,7 +176,8 @@ def main():
 
     with open("route_check.geojson", "w") as f:
         json.dump(route, f)
-    write_html("route_check.html", route, shortest_coords, start, end)
+    write_html("route_check.html", route, shortest_coords, start, end,
+               rated_ways_around(DB_PATH, route["geometry"]["coordinates"] + shortest_coords))
     print("💾 route_check.geojson, route_check.html")
 
     if all(passed for _, passed in checks):
