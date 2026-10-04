@@ -4,6 +4,7 @@ import sqlite3
 import random
 import math
 import json
+import os
 
 EARTH_RADIUS_M = 6378137.0
 
@@ -13,6 +14,9 @@ MIN_GRADE = 1
 MAX_RATED_GRADE = 10
 MAX_GRADE = 11
 DEFAULT_GRADE = 5.0  # unrated ways (ratings_count = 0)
+
+# OSM tags of the ways, downloaded by generate_ratings.py - the only place street names live
+WAY_TAGS_PATH = os.path.join("cache", "ratings_way_tags.json")
 
 
 def node_id(lon, lat):
@@ -48,6 +52,26 @@ class RoutingEngine:
         self._node_ids = []
         self._node_lons = np.empty(0)
         self._node_lats = np.empty(0)
+        self.way_names = {}  # way_id -> street name, only for named ways
+
+    def load_way_names(self, tags_path=WAY_TAGS_PATH):
+        """Reads street names from the OSM tags cache; without the cache every way stays unnamed."""
+        if not os.path.exists(tags_path):
+            print(f"No {tags_path} - run generate_ratings.py to get street names")
+            return
+        with open(tags_path) as f:
+            tags = json.load(f)
+        self.way_names = {int(way_id): t["name"] for way_id, t in tags.items() if t.get("name")}
+        print(f"Street names loaded for {len(self.way_names)} ways")
+
+    def route_names(self, way_ids):
+        """Street names along the ways in walking order, each once; unnamed ways are skipped."""
+        names = []
+        for way_id in way_ids:
+            name = self.way_names.get(way_id)
+            if name and name not in names:
+                names.append(name)
+        return names
 
     def load_graph_from_db(self):
         """Loads data from the table into the NetworkX engine."""
