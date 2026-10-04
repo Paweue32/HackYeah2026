@@ -82,9 +82,9 @@ def process_route_generation(payload: RoutePayload, response: Response):
              routes = [route]
  
      elif payload.mode == "point_distance" and payload.point:
-             # Same lowest-cost A -> B routing, with the B's on a circle of radius `distance` around the point
-             routes = engine.find_routes_on_circle(payload.point.lng, payload.point.lat,
-                                                   payload.distance or 3000)
+             # Round trips from the point that turn near the edge of a circle of radius `distance` around it
+             routes = engine.find_loops_on_circle(payload.point.lng, payload.point.lat,
+                                                  payload.distance or 3000)
              if not routes:
                   response.status_code = status.HTTP_400_BAD_REQUEST
                   return {
