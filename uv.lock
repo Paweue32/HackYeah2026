@@ -399,6 +399,7 @@ dependencies = [
     { name = "cachetools" },
     { name = "fastapi", extra = ["standard"] },
     { name = "networkx" },
+    { name = "numpy" },
     { name = "osmnx" },
 ]
 
@@ -407,6 +408,7 @@ requires-dist = [
     { name = "cachetools", specifier = ">=7.2.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.142.2" },
     { name = "networkx", specifier = ">=3.7" },
+    { name = "numpy", specifier = ">=2.5.3" },
     { name = "osmnx", specifier = ">=2.1.1" },
 ]
 

@@ -2,3 +2,6 @@
 venv/
 .venv/
 __pycache__/
+venv/
+route_check.geojson
+route_check.html
