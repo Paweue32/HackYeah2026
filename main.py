@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
      yield
 
 app = FastAPI(lifespan=lifespan)
-active_routes = TTLCache(maxsize=10000, ttl=30*60)
+active_routes = TTLCache(maxsize=100000, ttl=2*60)
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,7 +50,7 @@ class DiscardPayload(BaseModel):
     discarded_route_ids: list[str]
 
 class RefreshPayload(BaseModel):
-    prolonged_route_id: str
+    prolonged_route_ids: list[str]
 
 class FeedbackPayload(BaseModel):
     route_id: str
@@ -122,17 +122,20 @@ def process_suggestion_discard(payload: DiscardPayload, response: Response):
 
 @app.post("/refresh/", status_code=200)
 def process_refresh_path(payload: RefreshPayload, response: Response):
-      if payload.prolonged_route_id in active_routes:
-           active_routes[payload.prolonged_route_id] = active_routes[payload.prolonged_route_id]
-           return {
-                "status": "success"
-           }
-
-      response.status_code = status.HTTP_400_BAD_REQUEST
+      for route_id in payload.prolonged_route_ids:
+           if route_id in active_routes:
+                active_routes[route_id] = active_routes[route_id]
+           else:
+               response.status_code = status.HTTP_400_BAD_REQUEST
+               return {
+                    "status": "failure",
+                    "message": "The route ID is invalid. Perhaps it has timed out"
+               }
+      
       return {
-           "status": "failure",
-           "message": "The route ID is invalid. Perhaps it has timed out"
+           "status": "success"
       }
+      
 
 @app.get("/routes/{route_id}/names", status_code=200)
 def process_route_names(route_id: str, response: Response):
